@@ -1,0 +1,129 @@
+{
+  "FileReferences": {
+    "Moc": "sub_mikudayo_robot_t01.moc3",
+    "Motions": {
+      "w-dayo-attack01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-attack01.motion3.json"
+        }
+      ],
+      "w-dayo-attack02": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-attack02.motion3.json"
+        }
+      ],
+      "w-dayo-attack03": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-attack03.motion3.json"
+        }
+      ],
+      "w-dayo-attack04": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-attack04.motion3.json"
+        }
+      ],
+      "w-dayo-damage01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-damage01.motion3.json"
+        }
+      ],
+      "w-dayo-damage02": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-damage02.motion3.json"
+        }
+      ],
+      "w-dayo-joy01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-joy01.motion3.json"
+        }
+      ],
+      "w-dayo-lookdown01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-lookdown01.motion3.json"
+        }
+      ],
+      "w-dayo-nod01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-nod01.motion3.json"
+        }
+      ],
+      "w-dayo-pose": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-pose.motion3.json"
+        }
+      ],
+      "w-dayo-shakehead01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-shakehead01.motion3.json"
+        }
+      ],
+      "w-dayo-tilthead01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/w-dayo-tilthead01.motion3.json"
+        }
+      ],
+      "face_lighton_01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/face_lighton_01.motion3.json"
+        }
+      ],
+      "face_lighton_02": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/face_lighton_02.motion3.json"
+        }
+      ],
+      "face_normal_01": [
+        {
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5,
+          "File": "motions/face_normal_01.motion3.json"
+        }
+      ]
+    },
+    "Physics": "sub_mikudayo_robot_t01.physics3.json",
+    "Textures": [
+      "sub_mikudayo_robot_t01.2048/texture_00.png"
+    ]
+  },
+  "Groups": [
+    {
+      "Ids": [],
+      "Name": "EyeBlink",
+      "Target": "Parameter"
+    },
+    {
+      "Ids": [],
+      "Name": "LipSync",
+      "Target": "Parameter"
+    }
+  ],
+  "Version": 3
+}

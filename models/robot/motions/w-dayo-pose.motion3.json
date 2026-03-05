@@ -1,0 +1,226 @@
+{
+  "Version": 3,
+  "Meta": {
+    "Duration": 1,
+    "Fps": 60.0,
+    "Loop": true,
+    "AreBeziersRestricted": true,
+    "CurveCount": 19,
+    "UserDataCount": 0,
+    "TotalSegmentCount": 38,
+    "TotalPointCount": 38,
+    "TotalUserDataSize": 0
+  },
+  "Curves": [
+    {
+      "Target": "Model",
+      "Id": "Opacity",
+      "Segments": [
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamPositionX",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamPositionY",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamRotationZ",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamAngleX",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamAngleY",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamAngleZ",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBodyAngleX",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBodyAngleY",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBodyAngleZ",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBreath",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamUpperBody",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamArmR1",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamArmL1",
+      "Segments": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartCore",
+      "Segments": [
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartFace",
+      "Segments": [
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartArmL",
+      "Segments": [
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartArmR",
+      "Segments": [
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartSketch",
+      "Segments": [
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    }
+  ],
+  "UserData": []
+}

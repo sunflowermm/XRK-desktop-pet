@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DragBox</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+      /* 优化渲染性能 */
+      will-change: transform;
+      transform: translateZ(0);
+      -webkit-transform: translateZ(0);
+    }
+    #box {
+      width: 100%;
+      height: 100%;
+      border-radius: 10px;
+      background: transparent;
+      border: 1px solid transparent;
+      -webkit-app-region: no-drag;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease, border-color 0.2s ease;
+      /* 优化渲染性能 */
+      will-change: transform;
+      transform: translateZ(0);
+      -webkit-transform: translateZ(0);
+    }
+    /* 鼠标悬停时才显示边框 */
+    #box:hover {
+      background: rgba(0, 0, 0, 0.01);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    /* 中间可视拖拽手柄区域 */
+    #handle {
+      width: 64px;
+      height: 64px;
+      border-radius: 10px;
+      background: transparent;
+      border: 1px solid transparent;
+      -webkit-app-region: no-drag;
+      touch-action: none;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    /* 鼠标悬停时才显示手柄 */
+    #handle:hover {
+      background: rgba(0, 0, 0, 0.02);
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+    /* 不再修改按下时的鼠标样式，完全交由系统默认样式，避免与底层窗口重复切换 */
+  </style>
+</head>
+<body>
+  <div id="box">
+    <div id="handle"></div>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Menu</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      overflow: hidden;
+      scrollbar-width: none;
+    }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
+
+    body {
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      color: #fff;
+      user-select: none;
+      margin: 0;
+      padding: 0;
+      cursor: default;
+    }
+
+    #menu {
+      background: rgba(30, 30, 30, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 4px 0;
+      width: fit-content;
+      min-width: 200px;
+      max-width: 200px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      position: relative;
+      overflow: visible;
+      z-index: 1;
+      transform: translateZ(0);
+    }
+
+    .menu-item {
+      padding: 6px 16px;
+      cursor: default;
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .menu-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .menu-separator {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 4px 8px;
+    }
+
+    .submenu-container {
+      position: relative;
+      width: 100%;
+    }
+
+    .submenu-arrow {
+      font-size: 8px;
+      opacity: 0.6;
+      margin-left: 8px;
+    }
+
+    .submenu-container:hover .submenu-arrow {
+      transform: translateX(2px);
+    }
+
+    .submenu {
+      position: absolute;
+      left: 0;
+      top: 0;
+      background: rgba(30, 30, 30, 0.95) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 4px 0;
+      min-width: 180px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      display: none;
+      visibility: hidden;
+      opacity: 0;
+      z-index: 9999;
+      pointer-events: auto;
+      white-space: normal;
+      transform: translateZ(0);
+      overflow: visible;
+      isolation: isolate;
+    }
+    
+    .submenu.show {
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      background: rgba(30, 30, 30, 0.95) !important;
+      z-index: 9999 !important;
+      pointer-events: auto !important;
+      transform: translateX(0) translateZ(0);
+    }
+
+    .submenu .menu-item {
+      justify-content: flex-start;
+      width: 100%;
+      padding: 6px 16px;
+      cursor: default;
+    }
+    
+    .submenu .menu-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div id="menu"></div>
+  <script src="menu.js"></script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+{
+  "name": "sunflower-desktop-pet",
+  "version": "1.0.0",
+  "description": "向日葵桌面宠物",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "prepare:icon": "node scripts/gen-icon.js",
+    "clean:dist": "rimraf dist",
+    "build": "npm run prepare:icon && npm run clean:dist && electron-builder",
+    "build:win": "npm run prepare:icon && npm run clean:dist && electron-builder --win",
+    "build:dir": "npm run prepare:icon && electron-builder --dir",
+    "publish": "node publish.js"
+  },
+  "keywords": [
+    "electron",
+    "desktop-pet"
+  ],
+  "author": "sunflower",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest",
+    "rimraf": "latest",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.33.4"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "build": {
+    "appId": "com.sunflower.desktop-pet",
+    "productName": "向日葵桌面宠物",
+    "copyright": "Copyright © 2026 sunflower",
+    "directories": {
+      "output": "dist",
+      "buildResources": "."
+    },
+    "files": [
+      "**/*",
+      "!**/*.md",
+      "!**/test/**/*",
+      "!**/.user-data/**/*",
+      "!**/node_modules/**/*",
+      "!dist/**/*",
+      "!.git/**/*"
+    ],
+    "win": {
+      "executableName": "向日葵桌面宠物",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "extraResources": [
+      {
+        "from": "assets/icon.ico",
+        "to": "assets/icon.ico"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "向日葵桌面宠物",
+      "deleteAppDataOnUninstall": false
+    },
+    "extraMetadata": {
+      "main": "main.js"
+    }
+  }
+}

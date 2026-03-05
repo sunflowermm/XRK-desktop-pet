@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>模型窗口调试</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+
+    body {
+      background: #181818;
+      color: #f5f5f5;
+      font-size: 13px;
+      padding: 12px 14px;
+    }
+
+    h1 {
+      font-size: 15px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 10px;
+    }
+
+    .form-row {
+      margin-bottom: 8px;
+    }
+
+    .form-row label {
+      display: block;
+      margin-bottom: 2px;
+      color: #ddd;
+      font-size: 12px;
+    }
+
+    .field-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .field-group input[type='number'] {
+      width: 70px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #202020;
+      color: #f5f5f5;
+      font-size: 12px;
+    }
+
+    .field-group input[type='range'] {
+      flex: 1;
+      accent-color: #409eff;
+    }
+
+    .field-group input[type='number']:focus {
+      outline: none;
+      border-color: #409eff;
+      box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.2);
+    }
+
+    .badge-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    .badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #252525;
+      border: 1px solid #333;
+    }
+
+    .btn-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      padding: 4px 12px;
+      border-radius: 4px;
+      border: 1px solid #3a3a3a;
+      background: #262626;
+      color: #f5f5f5;
+      font-size: 12px;
+      cursor: default;
+    }
+
+    button.primary {
+      background: #409eff;
+      border-color: #409eff;
+      color: #fff;
+    }
+
+    button:active {
+      filter: brightness(0.92);
+    }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #808080;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <h1>模型窗口调试</h1>
+  <div class="subtitle">实时调整当前模型的窗口尺寸与缩放，切换模型或大小档位时会自动更新显示。</div>
+
+  <div class="badge-row">
+    <div class="badge" id="badge-model">模型：-</div>
+    <div class="badge" id="badge-size">档位：-</div>
+  </div>
+
+  <div class="form-row">
+    <label for="stageWidth">宽度(px)</label>
+    <div class="field-group">
+      <input id="stageWidth" type="number" min="50" max="800" step="1" />
+      <input id="stageWidthRange" type="range" min="50" max="800" step="1" />
+    </div>
+  </div>
+  <div class="form-row">
+    <label for="stageHeight">高度(px)</label>
+    <div class="field-group">
+      <input id="stageHeight" type="number" min="50" max="800" step="1" />
+      <input id="stageHeightRange" type="range" min="50" max="800" step="1" />
+    </div>
+  </div>
+  <div class="form-row">
+    <label for="scale">缩放(scale)</label>
+    <div class="field-group">
+      <input id="scale" type="number" min="0.1" max="5" step="0.05" />
+      <input id="scaleRange" type="range" min="0.1" max="5" step="0.05" />
+    </div>
+  </div>
+  <div class="form-row">
+    <label for="offsetX">X 偏移</label>
+    <div class="field-group">
+      <input id="offsetX" type="number" min="-500" max="500" step="1" />
+      <input id="offsetXRange" type="range" min="-500" max="500" step="1" />
+    </div>
+  </div>
+  <div class="form-row">
+    <label for="offsetY">Y 偏移</label>
+    <div class="field-group">
+      <input id="offsetY" type="number" min="-500" max="500" step="1" />
+      <input id="offsetYRange" type="range" min="-500" max="500" step="1" />
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btnReset">重置为当前配置</button>
+    <button id="btnClose">关闭</button>
+  </div>
+
+  <div class="hint">
+    - 在右键菜单中进入此面板，调整参数会立即作用到当前模型窗口。<br />
+    - 调整完成后，可以把参数抄回 <code>renderer/live2d-core.js</code> 与 <code>main.js</code> 中的舞台配置常量，作为正式档位。
+  </div>
+
+  <script src="debug-panel.js"></script>
+</body>
+</html>
+

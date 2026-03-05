@@ -1,0 +1,319 @@
+{
+  "Version": 3,
+  "Meta": {
+    "Duration": 2.37,
+    "Fps": 60.0,
+    "Loop": true,
+    "AreBeziersRestricted": true,
+    "CurveCount": 19,
+    "UserDataCount": 0,
+    "TotalSegmentCount": 57,
+    "TotalPointCount": 75,
+    "TotalUserDataSize": 0
+  },
+  "Curves": [
+    {
+      "Target": "Parameter",
+      "Id": "ParamAngleY",
+      "Segments": [
+        0,
+        0,
+        0,
+        0.35,
+        -16,
+        1,
+        0.461,
+        -18.318,
+        0.572,
+        -18.0,
+        0.683,
+        -18,
+        1,
+        0.85,
+        -18,
+        1.016,
+        -17.405,
+        1.183,
+        -8,
+        1,
+        1.294,
+        -1.73,
+        1.406,
+        30.0,
+        1.517,
+        30,
+        2,
+        2.367,
+        30
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBodyAngleY",
+      "Segments": [
+        0,
+        0,
+        0,
+        0.267,
+        -9,
+        1,
+        0.378,
+        -10.0,
+        0.489,
+        -10.0,
+        0.6,
+        -10,
+        1,
+        0.883,
+        -10,
+        1.167,
+        0.562,
+        1.45,
+        7,
+        1,
+        1.522,
+        8.641,
+        1.595,
+        7.945,
+        1.667,
+        7.945,
+        2,
+        2.367,
+        7.945
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamUpperBody",
+      "Segments": [
+        0,
+        0,
+        0,
+        0.3,
+        -3,
+        1,
+        0.472,
+        -3.945,
+        0.645,
+        -4.0,
+        0.817,
+        -4,
+        0,
+        1.35,
+        3,
+        2,
+        2.367,
+        3
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamArmR1",
+      "Segments": [
+        0,
+        4,
+        0,
+        0.35,
+        2,
+        1,
+        0.461,
+        1.12,
+        0.572,
+        1.0,
+        0.683,
+        1,
+        0,
+        1.45,
+        15,
+        0,
+        1.7,
+        14.748,
+        2,
+        2.367,
+        14.748
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamArmL1",
+      "Segments": [
+        0,
+        4,
+        0,
+        0.35,
+        2,
+        1,
+        0.461,
+        1.12,
+        0.572,
+        1.0,
+        0.683,
+        1,
+        0,
+        1.45,
+        15,
+        0,
+        1.7,
+        14.748,
+        2,
+        2.367,
+        14.748
+      ]
+    },
+    {
+      "Target": "Model",
+      "Id": "Opacity",
+      "Segments": [
+        0,
+        1,
+        0,
+        2.37,
+        1
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamPositionX",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamPositionY",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamRotationZ",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamAngleX",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamAngleZ",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBodyAngleX",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBodyAngleZ",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamBreath",
+      "Segments": [
+        0,
+        0,
+        0,
+        2.37,
+        0
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartCore",
+      "Segments": [
+        0,
+        1,
+        0,
+        2.37,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartFace",
+      "Segments": [
+        0,
+        1,
+        0,
+        2.37,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartArmL",
+      "Segments": [
+        0,
+        1,
+        0,
+        2.37,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartArmR",
+      "Segments": [
+        0,
+        1,
+        0,
+        2.37,
+        1
+      ]
+    },
+    {
+      "Target": "PartOpacity",
+      "Id": "PartSketch",
+      "Segments": [
+        0,
+        1,
+        0,
+        2.37,
+        1
+      ]
+    }
+  ],
+  "UserData": []
+}
