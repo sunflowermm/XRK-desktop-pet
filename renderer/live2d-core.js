@@ -115,6 +115,7 @@ function createLive2DApp({
   let smoothHeadX = 0;
   let smoothHeadY = 0;
   let lastMicroMotionAt = 0;
+  let lastStageLogAt = 0;
   
   /**
    * 运行时调试覆盖（仅内存，不污染共享配置）
@@ -196,6 +197,18 @@ function createLive2DApp({
     stageWidth = cfg.stageWidth;
     stageHeight = cfg.stageHeight;
     app?.renderer?.resize(stageWidth, stageHeight);
+    
+    const now = Date.now();
+    if (now - lastStageLogAt > 1000) {
+      lastStageLogAt = now;
+      dlog('stage-layout', {
+        model: currentModelKey,
+        sizeKey: currentStageSizeKey,
+        stage: { width: stageWidth, height: stageHeight },
+        cfg,
+        baseScale: modelBaseScale,
+      });
+    }
   }
 
   /**

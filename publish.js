@@ -32,6 +32,23 @@ function debug(...args) {
   console.log('[publish:debug]', ...args);
 }
 
+function registerProcessCleanup() {
+  const cleanup = () => removeTempBuilderConfig();
+  process.on('exit', cleanup);
+  process.on('SIGINT', () => { cleanup(); process.exit(130); });
+  process.on('SIGTERM', () => { cleanup(); process.exit(143); });
+  process.on('uncaughtException', (err) => {
+    cleanup();
+    console.error('❌ uncaughtException:', err?.stack || err?.message || String(err));
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (err) => {
+    cleanup();
+    console.error('❌ unhandledRejection:', err?.stack || err?.message || String(err));
+    process.exit(1);
+  });
+}
+
 function getBaseBuildConfig() {
   const pkg = JSON.parse(readFileSync(path.join(rootDir, 'package.json'), 'utf-8'));
   if (!pkg || typeof pkg !== 'object' || !pkg.build) {
@@ -41,9 +58,38 @@ function getBaseBuildConfig() {
 }
 
 function getReleaseNotes() {
+  try {
+    if (!existsSync(historyDir)) {
+      mkdirSync(historyDir, { recursive: true });
+    }
+  } catch (_) {}
   const p = path.join(historyDir, `v${version}.md`);
   if (existsSync(p)) return readFileSync(p, 'utf-8');
-  return '';
+
+  // 自动生成版本文档（避免发布时忘记补 history）
+  const stub = [
+    `## v${version}`,
+    '',
+    '### 亮点',
+    '- （必填）本版本最重要的 1-3 个变化',
+    '',
+    '### 更新',
+    '- （可选）新增/优化内容',
+    '',
+    '### 修复',
+    '- （可选）修复内容',
+    '',
+    '### 已知问题',
+    '- （可选）已知问题与规避方案',
+    ''
+  ].join('\n');
+  try {
+    writeFileSync(p, stub, 'utf-8');
+    console.warn(`⚠️ 未找到更新日志，已自动生成：history/v${version}.md（请补充后重新发布）`);
+  } catch (e) {
+    console.warn('⚠️ 自动生成更新日志失败:', e.message);
+  }
+  return stub;
 }
 
 function getDistArtifacts() {
@@ -80,9 +126,34 @@ function createElectronBuilderConfig(platformKey) {
   const publishConfig = getPublishConfig(platformKey);
   if (!publishConfig) throw new Error(`未知平台: ${platformKey}`);
   const baseBuild = getBaseBuildConfig();
+
+  const platform = PLATFORMS[platformKey];
+  const embeddedUpdateSource = {
+    platform: platformKey,
+    provider: publishConfig.provider,
+    url: publishConfig.url || null,
+    owner: platform?.owner || null,
+    repo: platform?.repo || null,
+    releasesUrl: platform?.releasesUrl || null,
+    embeddedAt: new Date().toISOString(),
+  };
+
   writeFileSync(
     tempBuilderConfigPath,
-    JSON.stringify({ ...baseBuild, publish: publishConfig }, null, 2),
+    JSON.stringify(
+      {
+        ...baseBuild,
+        // 关键：每个平台注入不同的 publish 配置，让“从哪安装就从哪更新”生效
+        publish: publishConfig,
+        extraMetadata: {
+          ...(baseBuild.extraMetadata || {}),
+          // 运行时可读取：用于核对“当前安装包的更新源”
+          xrkUpdateSource: embeddedUpdateSource,
+        },
+      },
+      null,
+      2
+    ),
     'utf-8'
   );
 }
@@ -474,6 +545,7 @@ async function publishOnePlatform(platform, releaseNotes) {
 }
 
 async function main() {
+  registerProcessCleanup();
   const enabledPlatforms = getPlatformsWithToken();
   if (enabledPlatforms.length === 0) {
     console.error(
@@ -485,6 +557,18 @@ async function main() {
   const releaseNotes = getReleaseNotes();
   if (releaseNotes) console.log(`📝 更新日志: history/v${version}.md\n`);
   else console.warn('⚠️ 未找到更新日志\n');
+
+  console.log('📡 本次构建将内嵌的更新源：');
+  for (const p of enabledPlatforms) {
+    const pub = getPublishConfig(p.key);
+    if (pub?.provider === 'github') {
+      console.log(`   ${p.name}: github://${pub.owner}/${pub.repo}`);
+    } else if (pub?.provider) {
+      console.log(`   ${p.name}: ${pub.provider} ${pub.url || ''}`.trim());
+    } else {
+      console.log(`   ${p.name}: (未知 publish 配置)`);
+    }
+  }
 
   console.log(
     `📦 开始构建并发布 v${version}，目标平台: ${enabledPlatforms

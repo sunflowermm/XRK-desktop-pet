@@ -25,7 +25,14 @@ function createTrayImage() {
   return img && !img.isEmpty() ? img : nativeImage.createEmpty();
 }
 
-function createTray({ getMainWindow, createWindow, getLockState, toggleLock } = {}) {
+function createTray({
+  getMainWindow,
+  createWindow,
+  getLockState,
+  toggleLock,
+  checkForUpdates,
+  clearUpdateCache,
+} = {}) {
   if (tray) return tray;
 
   try {
@@ -62,7 +69,7 @@ function createTray({ getMainWindow, createWindow, getLockState, toggleLock } = 
     const visible = !!(win && win.isVisible && win.isVisible());
     const locked = typeof getLockState === 'function' ? !!getLockState() : false;
 
-    const contextMenu = Menu.buildFromTemplate([
+    const template = [
       {
         label: visible ? '隐藏桌宠' : '显示桌宠',
         click: () => {
@@ -79,12 +86,43 @@ function createTray({ getMainWindow, createWindow, getLockState, toggleLock } = 
           setTimeout(updateContextMenu, 50);
         },
       },
+    ];
+
+    if (typeof checkForUpdates === 'function' || typeof clearUpdateCache === 'function') {
+      template.push({ type: 'separator' });
+      if (typeof checkForUpdates === 'function') {
+        template.push({
+          label: '检查更新',
+          click: () => {
+            try {
+              const p = checkForUpdates();
+              if (p && typeof p.catch === 'function') p.catch(() => {});
+            } catch (_) {}
+          },
+        });
+      }
+      if (typeof clearUpdateCache === 'function') {
+        template.push({
+          label: '清理更新缓存',
+          click: () => {
+            try {
+              const p = clearUpdateCache();
+              if (p && typeof p.catch === 'function') p.catch(() => {});
+            } catch (_) {}
+          },
+        });
+      }
+    }
+
+    template.push(
       { type: 'separator' },
       {
         label: '退出',
         click: () => app.quit(),
       },
-    ]);
+    );
+
+    const contextMenu = Menu.buildFromTemplate(template);
 
     tray.setContextMenu(contextMenu);
   };

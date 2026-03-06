@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, Menu, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { createTray, destroyTray } = require('./main/modules/tray');
 const { startCursorBroadcast, stopCursorBroadcast } = require('./main/modules/cursorBroadcast');
 const { registerDragIpc } = require('./main/modules/ipc-drag');
+const { createUpdater } = require('./main/modules/updater');
 const { createDragWindow, getDragWindow } = require('./main/windows/dragWindow');
 const { STAGE_SIZE_PRESETS } = require('./stageConfig');
 
@@ -15,6 +16,8 @@ let stableMainSize = { width: 0, height: 0 };
 let isDragging = false;
 let currentModelKey = 'kuromi';
 let isLocked = false;
+
+let updater = null;
 
 // 获取配置路径（动态获取，支持打包后的情况）
 function getConfigPath() {
@@ -206,18 +209,7 @@ function createMainWindow() {
   });
   
   if (process.platform === 'win32') {
-    try {
-      const { exec } = require('child_process');
-      mainWindow.webContents.once('did-finish-load', () => {
-        const rendererPid = mainWindow.webContents.getOSProcessId();
-        if (rendererPid) {
-          exec(`wmic process where processid=${rendererPid} call setpriority "high priority"`, () => {});
-          setTimeout(() => {
-            exec(`powershell -Command "$p = Get-Process -Id ${rendererPid}; $p.PriorityClass = 'High'"`, () => {});
-          }, 100);
-        }
-      });
-    } catch (e) {}
+    // 进程优先级提升已在 app.whenReady 时对主进程统一设置，此处不再重复对 renderer 设置
   }
 
   applyNoMenuBar(mainWindow);
@@ -287,18 +279,6 @@ function createMainWindow() {
     try {
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      if (process.platform === 'win32') {
-        try {
-          const { exec } = require('child_process');
-          setTimeout(() => {
-            const rendererPid = mainWindow.webContents.getOSProcessId();
-            if (rendererPid) {
-              exec(`wmic process where processid=${rendererPid} call setpriority "high priority"`, () => {});
-              exec(`powershell -Command "$p = Get-Process -Id ${rendererPid}; $p.PriorityClass = 'High'"`, () => {});
-            }
-          }, 200);
-        } catch (e) {}
-      }
       mainWindow.show();
     } catch (e) {}
   });
@@ -502,6 +482,8 @@ ipcMain.on('reset-drag-window', () => {
 });
 
 // 同步overlay窗口到主窗口：确保大小和位置完全同步（异步执行，不阻塞渲染）
+let lastSyncDragLogAt = 0;
+
 function syncDragWindowToMain() {
   if (!mainWindow || mainWindow.isDestroyed() || isDragging) return;
   const dw = getDragWindow();
@@ -525,6 +507,17 @@ function syncDragWindowToMain() {
       // 同步位置：overlay窗口位置与主窗口完全一致（中心对齐，大小相同所以位置相同）
       if (Math.abs(dw.getBounds().x - b.x) > 0.5 || Math.abs(dw.getBounds().y - b.y) > 0.5) {
         dw.setPosition(b.x, b.y, false);
+      }
+      
+      const now = Date.now();
+      if (now - lastSyncDragLogAt > 300) {
+        lastSyncDragLogAt = now;
+        dlog('sync-drag-window', {
+          mainBounds: b,
+          mainContentSize: { width: cw, height: ch },
+          dragContentSize: { width: dwW, height: dwH },
+          dragBounds: dw.getBounds(),
+        });
       }
     } catch (_) {}
   });
@@ -1017,92 +1010,23 @@ function syncBothWindowsSizeAndPosition(width, height, x, y) {
   }
 }
 
-function setWindowSizeKeepCenter(width, height) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  
-  // 异步执行，避免阻塞渲染
-  setImmediate(() => {
-    try {
-      allowProgrammaticResize = true;
-      const b = mainWindow.getBounds();
-      const [cw, ch] = mainWindow.getContentSize();
-      const centerX = b.x + Math.round(cw / 2);
-      const centerY = b.y + Math.round(ch / 2);
-      
-      const display = screen.getDisplayMatching(b);
-      const wa = display?.workArea || screen.getPrimaryDisplay().workArea;
-      const x = Math.min(Math.max(centerX - Math.round(width / 2), wa.x), wa.x + wa.width - width);
-      const y = Math.min(Math.max(centerY - Math.round(height / 2), wa.y), wa.y + wa.height - height);
-
-      // 使用统一的同步函数，确保两个窗口完全同步
-      syncBothWindowsSizeAndPosition(width, height, x, y);
-    } catch (e) {
-      dlog('set-window-size-error', { error: String(e), width, height });
-      // 降级处理：也要同步overlay窗口
-      try {
-        const b = mainWindow.getBounds();
-        let x, y;
-        if (b.x === 0 && b.y === 0) {
-          const wa = screen.getPrimaryDisplay().workArea;
-          x = Math.round((wa.width - width) / 2) + wa.x;
-          y = Math.round((wa.height - height) / 2) + wa.y;
-        } else {
-          x = b.x;
-          y = b.y;
-        }
-        syncBothWindowsSizeAndPosition(width, height, x, y);
-      } catch (e2) {
-        dlog('set-window-size-fallback-error', { error: String(e2) });
-      }
-    }
-    setTimeout(() => { allowProgrammaticResize = false; }, 0);
-  });
-}
-
 try {
+  // 保持桌宠在后台也“活着”：避免窗口不可见时被强节流
   app.commandLine.appendSwitch('disable-background-timer-throttling');
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
-  app.commandLine.appendSwitch('disable-hang-monitor');
-  app.commandLine.appendSwitch('disable-prompt-on-repost');
-  app.commandLine.appendSwitch('disable-background-networking');
-  app.commandLine.appendSwitch('disable-breakpad');
-  app.commandLine.appendSwitch('disable-component-update');
-  app.commandLine.appendSwitch('disable-domain-reliability');
-  app.commandLine.appendSwitch('disable-ipc-flooding-protection');
+
+  // 体验：不弹“崩溃恢复/首次运行”类提示
   app.commandLine.appendSwitch('disable-session-crashed-bubble');
-  app.commandLine.appendSwitch('disable-site-isolation-trials');
-  app.commandLine.appendSwitch('no-pings');
   app.commandLine.appendSwitch('no-first-run');
   app.commandLine.appendSwitch('no-default-browser-check');
-  app.commandLine.appendSwitch('disable-extensions');
-  app.commandLine.appendSwitch('disable-plugins-discovery');
-  app.commandLine.appendSwitch('disable-preconnect');
-  app.commandLine.appendSwitch('disable-translate');
-  app.commandLine.appendSwitch('disable-web-security');
+
+  // 渲染一致性
   app.commandLine.appendSwitch('force-color-profile', 'srgb');
-  app.commandLine.appendSwitch('in-process-gpu');
-  app.commandLine.appendSwitch('disable-gpu-sandbox');
-  app.commandLine.appendSwitch('disable-software-rasterizer');
-  app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
-  app.commandLine.appendSwitch('enable-accelerated-video-decode');
-  app.commandLine.appendSwitch('enable-native-gpu-memory-buffers');
-  app.commandLine.appendSwitch('enable-gpu-memory-buffer-compositor-resources');
-  app.commandLine.appendSwitch('enable-gpu-memory-buffer-video-frames');
-  app.commandLine.appendSwitch('enable-gpu-rasterization');
-  app.commandLine.appendSwitch('enable-zero-copy');
-  app.commandLine.appendSwitch('enable-hardware-overlays');
-  app.commandLine.appendSwitch('ignore-gpu-blacklist');
-  app.commandLine.appendSwitch('enable-webgl');
-  app.commandLine.appendSwitch('enable-webgl2');
-  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,UseSkiaRenderer,NetworkService,NetworkServiceInProcess,ThrottleForegroundTimers');
-  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,TranslateUI,BlinkGenPropertyTrees,VizDisplayCompositor');
-  app.commandLine.appendSwitch('disable-frame-rate-limit');
-  app.commandLine.appendSwitch('max-active-webgl-contexts', '16');
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   
   if (process.platform === 'win32') {
     app.commandLine.appendSwitch('high-dpi-support', '1');
-    app.commandLine.appendSwitch('force-device-scale-factor', '1');
   }
   
   if (app.isPackaged) {
@@ -1129,7 +1053,7 @@ function startSyncTimer() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       syncDragWindowToMain();
     }
-  }, 200);
+  }, 300);
 }
 
 function stopSyncTimer() {
@@ -1139,11 +1063,27 @@ function stopSyncTimer() {
   }
 }
 
+try {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', () => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      } catch (_) {}
+    });
+  }
+} catch (_) {}
+
 app.whenReady().then(() => {
   disableDefaultAppMenu();
   appConfig = getAppConfig();
   
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && app.isPackaged) {
     try {
       const { exec } = require('child_process');
       const pid = process.pid;
@@ -1166,6 +1106,8 @@ app.whenReady().then(() => {
     toggleLock: () => {
       toggleLock();
     },
+    checkForUpdates: () => updater?.checkNow?.(),
+    clearUpdateCache: () => updater?.clearCacheWithFeedback?.(),
   });
   
   // 将 trayInstance 保存到全局，供 toggleLock 使用
@@ -1184,6 +1126,21 @@ app.whenReady().then(() => {
   
   // 启动定期同步
   startSyncTimer();
+
+  // 启动后后台静默更新（下载完成再提示重启）
+  try {
+    updater = createUpdater({
+      app,
+      ipcMain,
+      dialog,
+      getMainWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+      dlog,
+      silentOnStartup: true,
+    });
+    updater.start();
+  } catch (e) {
+    dlog('updater-init-error', { error: String(e) });
+  }
 });
 
 app.on('window-all-closed', () => {
