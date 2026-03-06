@@ -1,9 +1,10 @@
-// 在 Electron 中，通过 <script src="renderer/index.js"> 加载时，require 的基准路径是 index.html，
-// 因此这里需要从 HTML 所在目录出发引用子目录下的模块。
+// 注意：本文件通过 <script src="renderer/index.js"> 注入到 index.html，
+// require 的相对路径是以 HTML 所在目录为基准，因此这里需要从 index.html 出发写路径。
 const { createLive2DApp } = require('./renderer/live2d-core');
 const { setupIpcBridge } = require('./renderer/ipc-bridge');
 
 window.addEventListener('DOMContentLoaded', () => {
+  console.log('[desktop-pet][renderer] DOMContentLoaded');
   const { ipcRenderer } = require('electron');
   
   // 从主进程获取配置

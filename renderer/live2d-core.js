@@ -536,46 +536,52 @@ function createLive2DApp({
    */
   function updateEyeFollow() {
     if (!model?.internalModel || !app?.view) return;
+
     const modelX = model.x;
     const modelY = model.y;
-      const dx = mouseX - modelX;
-      const dy = mouseY - modelY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+    let dx = mouseX - modelX;
+    let dy = mouseY - modelY;
 
-      const baseRef = Math.min(stageWidth, stageHeight);
-      let maxDistance = Math.max(60, Math.min(200, baseRef * 0.3));
-      
-      if (currentModelKey === 'kuromi') {
-        maxDistance *= 0.25;
-      }
+    const baseRef = Math.min(stageWidth, stageHeight) || 1;
+    let maxDistance = baseRef * 0.24;
 
-      const targetEyeX = Math.max(-1, Math.min(1, dx / maxDistance));
-      const targetEyeY = Math.max(-1, Math.min(1, -dy / maxDistance));
+    if (currentModelKey === 'kuromi') {
+      maxDistance *= 0.7;
+    }
 
-      const core = model.internalModel.coreModel;
-      const motionManager = model.internalModel.motionManager;
-      const isMotionPlaying = motionManager && !motionManager.isFinished();
+    // 中心轻微“死区”：小幅抖动时不大幅移动视线
+    const deadZone = maxDistance * 0.08;
+    if (Math.abs(dx) < deadZone) dx = 0;
+    if (Math.abs(dy) < deadZone) dy = 0;
 
-      let eyeLerp = isMotionPlaying ? 0.08 : 0.18;
-      let headLerp = isMotionPlaying ? 0.06 : 0.15;
-      
-      if (currentModelKey === 'kuromi') {
-        eyeLerp *= 3.5;
-        headLerp *= 3.0;
-      }
+    const targetEyeX = Math.max(-1, Math.min(1, dx / maxDistance));
+    const targetEyeY = Math.max(-1, Math.min(1, -dy / maxDistance));
 
-      smoothEyeX += (targetEyeX - smoothEyeX) * eyeLerp;
-      smoothEyeY += (targetEyeY - smoothEyeY) * eyeLerp;
+    const core = model.internalModel.coreModel;
+    const motionManager = model.internalModel.motionManager;
+    const isMotionPlaying = motionManager && !motionManager.isFinished();
 
-      const headDistanceDivisor = currentModelKey === 'kuromi' ? 8 : 20;
-      const headBaseScale = currentModelKey === 'kuromi' ? 0.18 : 0.12;
-      const headMultiplier = currentModelKey === 'kuromi' ? 4.0 : 1.0;
-      
-      let baseHeadX = Math.max(-20, Math.min(20, dx / headDistanceDivisor)) * headBaseScale * headMultiplier;
-      let baseHeadY = Math.max(-20, Math.min(20, -dy / headDistanceDivisor)) * headBaseScale * headMultiplier;
-      
-      smoothHeadX += (baseHeadX - smoothHeadX) * headLerp;
-      smoothHeadY += (baseHeadY - smoothHeadY) * headLerp;
+    // 更平滑的插值：眼睛稍快，头部明显更慢
+    let eyeLerp = isMotionPlaying ? 0.10 : 0.18;
+    let headLerp = isMotionPlaying ? 0.06 : 0.12;
+
+    if (currentModelKey === 'kuromi') {
+      eyeLerp *= 1.4;
+      headLerp *= 1.3;
+    }
+
+    smoothEyeX += (targetEyeX - smoothEyeX) * eyeLerp;
+    smoothEyeY += (targetEyeY - smoothEyeY) * eyeLerp;
+
+    const headDistanceDivisor = currentModelKey === 'kuromi' ? 8 : 18;
+    const headBaseScale = currentModelKey === 'kuromi' ? 0.2 : 0.14;
+    const headMultiplier = currentModelKey === 'kuromi' ? 2.4 : 1.1;
+
+    const baseHeadX = Math.max(-20, Math.min(20, dx / headDistanceDivisor)) * headBaseScale * headMultiplier;
+    const baseHeadY = Math.max(-20, Math.min(20, -dy / headDistanceDivisor)) * headBaseScale * headMultiplier;
+
+    smoothHeadX += (baseHeadX - smoothHeadX) * headLerp;
+    smoothHeadY += (baseHeadY - smoothHeadY) * headLerp;
 
     eyeXParamIds.forEach((id) => core.setParameterValueById(id, smoothEyeX));
     eyeYParamIds.forEach((id) => core.setParameterValueById(id, smoothEyeY));
@@ -590,10 +596,17 @@ function createLive2DApp({
   function onCursorPoint(payload) {
     if (!payload?.point || !payload?.bounds || !app?.view) return;
     const { point, bounds } = payload;
-    
-    mouseX = (point.x - bounds.x) * (stageWidth / bounds.width);
-    mouseY = (point.y - bounds.y) * (stageHeight / bounds.height);
-    
+
+    const kx = stageWidth / bounds.width;
+    const ky = stageHeight / bounds.height;
+    const targetX = (point.x - bounds.x) * kx;
+    const targetY = (point.y - bounds.y) * ky;
+
+    // 输入端也做平滑，避免鼠标轨迹的锯齿感
+    const lerp = 0.22;
+    mouseX += (targetX - mouseX) * lerp;
+    mouseY += (targetY - mouseY) * lerp;
+
     lastInteractionAt = Date.now();
     if (lastInteractionAt - lastMicroMotionAt > 9000) {
       lastMicroMotionAt = lastInteractionAt;

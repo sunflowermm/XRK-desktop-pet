@@ -179,6 +179,11 @@ function createMainWindow() {
   // 确保配置已加载
   const appConfigData = getAppConfig();
 
+  dlog('create-main-window-begin', {
+    isPackaged: app.isPackaged,
+    userData: app.getPath('userData'),
+  });
+
   mainWindow = new BrowserWindow({
     width: 1,
     height: 1,
@@ -214,6 +219,12 @@ function createMainWindow() {
 
   applyNoMenuBar(mainWindow);
 
+  try {
+    if (!app.isPackaged && isDebugMode()) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+  } catch (_) {}
+
   // 应用锁定状态
   applyLockState();
 
@@ -225,7 +236,35 @@ function createMainWindow() {
     versions: process.versions
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  const indexPath = path.join(__dirname, 'index.html');
+  dlog('main-load-file', { indexPath });
+  mainWindow.loadFile(indexPath).catch((e) => {
+    dlog('main-load-file-error', { error: String(e), indexPath });
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    dlog('main-did-finish-load', {});
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    dlog('main-did-fail-load', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+    });
+  });
+
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    try {
+      console.log(
+        `[desktop-pet][renderer-console][level=${level}]`,
+        JSON.stringify({ message, line, sourceId }).slice(0, 2000),
+      );
+    } catch (_) {
+      console.log('[desktop-pet][renderer-console]', message);
+    }
+  });
 
   // 禁用开发者工具（不自动打开）
   // 如需调试，可通过设置窗口启用 autoOpenDevTools
