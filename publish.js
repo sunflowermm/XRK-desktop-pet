@@ -488,7 +488,7 @@ async function publishGitCode(platform, releaseNotes) {
   await ensureGitCodeRelease(platform, token, releaseNotes || `v${version}`);
 
   const base = `${platform.apiBase}/repos/${platform.owner}/${platform.repo}`;
-  const headers = { PRIVATE_TOKEN: token };
+  const headers = { 'PRIVATE-TOKEN': token };
 
   try {
     for (const file of getDistArtifacts()) {
