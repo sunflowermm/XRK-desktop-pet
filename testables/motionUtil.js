@@ -28,7 +28,26 @@ const TAP_MOTIONS_BY_MODEL = {
   ],
   mark: ['Tap', 'Tap2'],
   kaguya: ['tap_body_01', 'tap_body_02'],
-  cinamoroll: ['tap_body_01', 'tap_body_02'],
+  // Cinnamoroll：使用官方 s-common / face 系列动作用作点击反馈
+  cinamoroll: [
+    's-common-joy01',
+    's-common-munimuni01',
+    's-common-pose01',
+    's-common-wandahoi01',
+    's-common-surprise01',
+    's-common-surprise02',
+    's-common-tilthead01',
+    's-common-tilthead02',
+    's-common-tilthead03',
+    's-common-tilthead04',
+    'face_smile_01',
+    'face_smile_03',
+    'face_sparkling_01',
+    'face_surprise_01',
+    'face_surprise_02',
+    'face_wink_01',
+    'face_wink_02',
+  ],
   robot: ['tap_body_01'],
 };
 
@@ -43,7 +62,22 @@ const IDLE_MOTIONS_BY_MODEL = {
   ],
   mark: ['Idle', 'Idle2'],
   kaguya: ['idle_01', 'idle_02'],
-  cinamoroll: ['idle_01', 'idle_02'],
+  // Cinnamoroll：偏温和表情类的待机/微动作
+  cinamoroll: [
+    's-common-tilthead01',
+    's-common-tilthead02',
+    's-common-tilthead03',
+    's-common-tilthead04',
+    's-common-lookdown01',
+    's-common-blushed01',
+    's-common-nod01',
+    'face_normal_01',
+    'face_normal_02',
+    'face_smile_01',
+    'face_smile_03',
+    'face_wink_01',
+    'face_wink_02',
+  ],
   robot: ['idle_01', 'idle_02'],
 };
 

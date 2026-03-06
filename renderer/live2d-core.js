@@ -83,11 +83,24 @@ function createLive2DApp({
     }
   }
 
-  function playKaguyaRandomMotion(priority, tag) {
-    if (currentModelKey === 'kaguya' && model?.internalModel?.motionManager) {
-      model.internalModel.motionManager.startRandomMotion('', priority);
-      dlog(tag, {});
-      return true;
+  /**
+   * 从 motionManager 中随机播放一个动作（优先按分组，失败则尝试全局）
+   * @param {string[]} groupCandidates - 候选分组名，例如 ['Tap', 'TapBody', 'Idle', '']
+   * @param {number} priority - MotionPriority
+   * @param {string} tag - 调试日志标签
+   */
+  function playRandomManagerMotion(groupCandidates, priority, tag) {
+    const mm = model?.internalModel?.motionManager;
+    if (!mm || !Array.isArray(groupCandidates) || !groupCandidates.length) return false;
+
+    for (const group of groupCandidates) {
+      try {
+        mm.startRandomMotion(group, priority);
+        dlog(tag, { model: currentModelKey, group });
+        return true;
+      } catch (_) {
+        // 尝试下一个分组
+      }
     }
     return false;
   }
@@ -625,8 +638,20 @@ function createLive2DApp({
    */
   function playSpecialMotion(kind = 'special1') {
     if (!model) return;
-    if (playKaguyaRandomMotion(window.PIXI.live2d.MotionPriority.FORCE, 'play-special-kaguya-random')) return;
 
+    // 1）优先从 motionManager 中随机挑选高优先级动作
+    const specialGroups = kind === 'micro'
+      ? ['Idle', 'idle', '', 'Tap', 'TapBody']
+      : ['Tap', 'TapBody', '', 'Idle', 'idle'];
+    if (playRandomManagerMotion(
+      specialGroups,
+      window.PIXI.live2d.MotionPriority.FORCE,
+      'play-special-manager-random',
+    )) {
+      return;
+    }
+
+    // 2）回退到手工维护的特定表（主要给 Kuromi / Mark 特效用）
     const specialMotions = {
       kuromi: ['face_hearteyes_01', 'face_surprise_03', 'face_shy_03', 's-common-joy01', 's-common-surprise01'],
       mark: ['Tap', 'Idle'],
@@ -634,17 +659,33 @@ function createLive2DApp({
 
     if (specialMotions[currentModelKey]) {
       const motionName = pickRandom(specialMotions[currentModelKey]);
-      playMotionSafely(motionName, window.PIXI.live2d.MotionPriority.FORCE, `play-special-${currentModelKey}`);
-      return;
+      if (
+        playMotionSafely(
+          motionName,
+          window.PIXI.live2d.MotionPriority.FORCE,
+          `play-special-${currentModelKey}`,
+        )
+      ) {
+        return;
+      }
     }
 
+    // 3）再不行就用 idle / tap 的通用动作做兜底
     if (kind === 'micro' && idleMotions?.length) {
-      playMotionSafely(pickRandom(idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-special-generic-idle');
+      playMotionSafely(
+        pickRandom(idleMotions),
+        window.PIXI.live2d.MotionPriority.IDLE,
+        'play-special-generic-idle',
+      );
       return;
     }
 
     if (tapMotions?.length) {
-      playMotionSafely(pickRandom(tapMotions), window.PIXI.live2d.MotionPriority.FORCE, 'play-special-generic-tap');
+      playMotionSafely(
+        pickRandom(tapMotions),
+        window.PIXI.live2d.MotionPriority.FORCE,
+        'play-special-generic-tap',
+      );
     }
   }
 
@@ -653,7 +694,17 @@ function createLive2DApp({
    */
   function tryPlayMicroMotion() {
     if (!model) return;
-    if (playKaguyaRandomMotion(window.PIXI.live2d.MotionPriority.IDLE, 'play-micro-kaguya-random')) return;
+
+    // 1）优先尝试从 motionManager 中随机选一条 idle/通用动作
+    if (
+      playRandomManagerMotion(
+        ['Idle', 'idle', 'Tap', 'TapBody', ''],
+        window.PIXI.live2d.MotionPriority.IDLE,
+        'play-micro-manager-random',
+      )
+    ) {
+      return;
+    }
 
     const microMotions = {
       kuromi: ['s-common-joy01', 's-common-tilthead01', 's-common-lookdown01'],
@@ -675,12 +726,20 @@ function createLive2DApp({
    */
   function tryPlayTapMotion() {
     if (!model) return;
-    if (playKaguyaRandomMotion(window.PIXI.live2d.MotionPriority.FORCE, 'play-tap-motion-kaguya-random')) {
+    // 1）优先用 motionManager 的点击分组 / 通用分组
+    if (
+      playRandomManagerMotion(
+        ['Tap', 'TapBody', '', 'Idle', 'idle'],
+        window.PIXI.live2d.MotionPriority.FORCE,
+        'play-tap-manager-random',
+      )
+    ) {
       lastInteractionAt = Date.now();
       armIdleTimer();
       return;
     }
 
+    // 2）回退到手工维护的 tapMotions
     if (playMotionSafely(pickRandom(tapMotions), window.PIXI.live2d.MotionPriority.FORCE, 'play-tap-motion')) {
       lastInteractionAt = Date.now();
       armIdleTimer();
@@ -721,7 +780,18 @@ function createLive2DApp({
    */
   function tryPlayIdleMotion() {
     if (!model) return;
-    if (playKaguyaRandomMotion(window.PIXI.live2d.MotionPriority.IDLE, 'play-idle-motion-kaguya-random')) return;
+    // 1）motionManager 优先：Idle / idle / 通用
+    if (
+      playRandomManagerMotion(
+        ['Idle', 'idle', '', 'Tap', 'TapBody'],
+        window.PIXI.live2d.MotionPriority.IDLE,
+        'play-idle-manager-random',
+      )
+    ) {
+      return;
+    }
+
+    // 2）兜底到手工 idle 列表
     playMotionSafely(pickRandom(idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-idle-motion');
   }
 
