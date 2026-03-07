@@ -26,6 +26,32 @@ const {
 const rootDir = __dirname;
 const historyDir = path.join(rootDir, 'history');
 const distDir = path.join(rootDir, 'dist');
+
+/** 保留的版本 release 数量（不含 latest） */
+const KEEP_RELEASE_COUNT = 4;
+
+/** 解析 v1.0.7 为 [1,0,7]，非版本 tag 返回 null */
+function parseVersionTag(tag) {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)$/i.exec(String(tag || '').trim());
+  return m ? [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)] : null;
+}
+
+/** 判断是否为版本 tag（v1.0.7），排除 latest 等 */
+function isVersionTag(tag) {
+  return parseVersionTag(tag) !== null;
+}
+
+/** 版本 tag 排序：新的在前 */
+function compareVersionTags(a, b) {
+  const va = parseVersionTag(a);
+  const vb = parseVersionTag(b);
+  if (!va) return 1;
+  if (!vb) return -1;
+  for (let i = 0; i < 3; i++) {
+    if (va[i] !== vb[i]) return vb[i] - va[i];
+  }
+  return 0;
+}
 const tempBuilderConfigPath = path.join(rootDir, '.electron-builder.publish.json');
 
 function debug(...args) {
@@ -187,6 +213,24 @@ function removeTempBuilderConfig() {
   }
 }
 
+/** 删除旧版 history 文档，只保留最近 KEEP_RELEASE_COUNT 个 */
+function pruneOldHistoryDocs() {
+  if (!existsSync(historyDir)) return;
+  const files = readdirSync(historyDir)
+    .filter((n) => /^v\d+\.\d+\.\d+\.md$/i.test(n))
+    .sort((a, b) => compareVersionTags(a.replace(/\.md$/i, ''), b.replace(/\.md$/i, '')));
+  const toKeep = files.slice(0, KEEP_RELEASE_COUNT);
+  const toDelete = files.filter((f) => !toKeep.includes(f));
+  for (const f of toDelete) {
+    try {
+      unlinkSync(path.join(historyDir, f));
+      debug('已删除旧版本文档:', f);
+    } catch (e) {
+      debug('删除 history 文件失败:', f, e.message);
+    }
+  }
+}
+
 function clearDistDir() {
   debug('清空 dist 目录');
   try {
@@ -289,8 +333,41 @@ async function publishGitHub(platform, releaseNotes) {
       body: releaseNotes
     });
     console.log('✅ GitHub Release 说明已更新');
+
+    await pruneOldGitHubReleases(platform, token);
   } catch (e) {
     console.warn('⚠️ 更新 GitHub Release 说明失败:', e.message);
+  }
+}
+
+/** 删除 GitHub 旧 release，保留最近 KEEP_RELEASE_COUNT 个版本 */
+async function pruneOldGitHubReleases(platform, token) {
+  try {
+    const octokit = new Octokit({ auth: token });
+    const { data: list } = await octokit.repos.listReleases({
+      owner: platform.publishConfig.owner,
+      repo: platform.publishConfig.repo,
+      per_page: 100
+    });
+    const versionReleases = list
+      .filter((r) => isVersionTag(r.tag_name))
+      .sort((a, b) => compareVersionTags(a.tag_name, b.tag_name));
+    const toKeep = versionReleases
+      .slice(0, KEEP_RELEASE_COUNT)
+      .map((r) => r.id);
+    const toDelete = list.filter(
+      (r) => r.tag_name !== 'latest' && !toKeep.includes(r.id)
+    );
+    for (const r of toDelete) {
+      await octokit.repos.deleteRelease({
+        owner: platform.publishConfig.owner,
+        repo: platform.publishConfig.repo,
+        release_id: r.id
+      });
+      debug('已删除 GitHub 旧 release:', r.tag_name);
+    }
+  } catch (e) {
+    debug('删除 GitHub 旧 release 失败:', e.message);
   }
 }
 
@@ -412,6 +489,32 @@ async function uploadGiteeArtifacts(platform, token, releaseId) {
   }
 }
 
+/** 删除 Gitee 旧 release，保留 latest + 最近 KEEP_RELEASE_COUNT 个版本 */
+async function pruneOldGiteeReleases(platform, token) {
+  const base = `${platform.apiBase}/repos/${platform.owner}/${platform.repo}`;
+  const auth = `access_token=${encodeURIComponent(token)}`;
+  const listRes = await fetch(`${base}/releases?${auth}&per_page=100`);
+  if (!listRes.ok) return;
+  const list = await listRes.json();
+  if (!Array.isArray(list)) return;
+
+  const versionReleases = list
+    .filter((r) => isVersionTag(r.tag_name))
+    .sort((a, b) => compareVersionTags(a.tag_name, b.tag_name));
+  const toKeep = versionReleases.slice(0, KEEP_RELEASE_COUNT).map((r) => r.id);
+  const toDelete = list.filter(
+    (r) => r.tag_name !== 'latest' && !toKeep.includes(r.id)
+  );
+
+  for (const r of toDelete) {
+    const delRes = await fetch(`${base}/releases/${r.id}?${auth}`, {
+      method: 'DELETE'
+    });
+    if (delRes.ok) debug('已删除 Gitee 旧 release:', r.tag_name);
+    else debug('删除 Gitee release 失败:', r.tag_name, await delRes.text());
+  }
+}
+
 async function publishGitee(platform, releaseNotes) {
   debug('开始发布 Gitee');
   await runElectronBuilder(platform.key, false);
@@ -437,6 +540,8 @@ async function publishGitee(platform, releaseNotes) {
     releaseNotes || `v${version}`
   );
   await uploadGiteeArtifacts(latestPlatform, token, latestReleaseId);
+
+  await pruneOldGiteeReleases(platform, token);
 }
 
 async function ensureGitCodeRelease(platform, token, releaseNotes) {
@@ -499,6 +604,33 @@ async function ensureGitCodeRelease(platform, token, releaseNotes) {
     const errText = await createRes.text();
     debug('GitCode release 创建失败', { errText, ref: releaseRef });
     throw new Error(`GitCode 创建 Release 失败: ${errText}`);
+  }
+}
+
+/** 删除 GitCode 旧 release，保留最近 KEEP_RELEASE_COUNT 个版本（及 latest 若有） */
+async function pruneOldGitCodeReleases(platform, token) {
+  const base = `${platform.apiBase}/repos/${platform.owner}/${platform.repo}`;
+  const headers = { 'PRIVATE-TOKEN': token };
+  const listRes = await fetch(`${base}/releases?per_page=100`, { headers });
+  if (!listRes.ok) return;
+  const list = await listRes.json();
+  if (!Array.isArray(list)) return;
+
+  const versionReleases = list
+    .filter((r) => isVersionTag(r.tag_name))
+    .sort((a, b) => compareVersionTags(a.tag_name, b.tag_name));
+  const toKeep = versionReleases.slice(0, KEEP_RELEASE_COUNT).map((r) => r.id);
+  const toDelete = list.filter(
+    (r) => r.tag_name !== 'latest' && !toKeep.includes(r.id)
+  );
+
+  for (const r of toDelete) {
+    const delRes = await fetch(`${base}/releases/${r.id}`, {
+      method: 'DELETE',
+      headers
+    });
+    if (delRes.ok) debug('已删除 GitCode 旧 release:', r.tag_name);
+    else debug('删除 GitCode release 失败:', r.tag_name, await delRes.text());
   }
 }
 
@@ -565,6 +697,7 @@ async function publishGitCode(platform, releaseNotes) {
   } catch (error) {
     console.warn('⚠️ GitCode 发布失败:', error.message);
   }
+  await pruneOldGitCodeReleases(platform, token);
 }
 
 async function publishOnePlatform(platform, releaseNotes) {
@@ -617,6 +750,7 @@ async function main() {
   }
 
   removeTempBuilderConfig();
+  pruneOldHistoryDocs();
 
   console.log('\n✅ 发布流程结束');
   console.log('📦 发行版链接:');

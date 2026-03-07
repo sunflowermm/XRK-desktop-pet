@@ -37,6 +37,15 @@ function createUpdater({
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // 将 electron-updater 的日志转到 dlog，便于排查“总是完整包”等（如：differential 失败原因）
+  try {
+    autoUpdater.log = {
+      info: (msg, ...args) => dlog('updater-info', { msg: String(msg), args: args?.length ? args : undefined }),
+      warn: (msg, ...args) => dlog('updater-warn', { msg: String(msg), args: args?.length ? args : undefined }),
+      error: (msg, ...args) => dlog('updater-error', { msg: String(msg), args: args?.length ? args : undefined }),
+    };
+  } catch (_) {}
+
   let updateDialogWindow = null;
   let isChecking = false;
 
