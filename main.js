@@ -808,6 +808,7 @@ ipcMain.on('show-menu-window', (event, screenX, screenY) => {
     sizePresets,
     isAlwaysOnTop: mainWindow?.isAlwaysOnTop() ?? true,
     isLocked: config.isLocked || false,
+    isVisible: mainWindow?.isVisible?.() ?? true,
   };
   const display = screen.getPrimaryDisplay();
   const bounds = display.bounds;
@@ -938,11 +939,6 @@ ipcMain.on('stage-debug-update-config', (event, patch) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('debug-update-stage-config', patch);
   }
-});
-
-// 从系统托盘切换锁定状态
-ipcMain.on('toggle-lock-from-tray', () => {
-  toggleLock();
 });
 
 // 设置窗口 IPC 处理

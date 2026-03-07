@@ -16,6 +16,11 @@ const { ipcRenderer } = require('electron');
 const { getTapMotionsForModel, getIdleMotionsForModel, pickRandom } = require('../testables/motionUtil');
 const { MODEL_STAGE_DEBUG_CONFIG } = require('../stageConfig');
 
+/** motionManager 点击类动作候选分组（用于 tap / 点击切换动作） */
+const TAP_GROUP_CANDIDATES = ['Tap', 'TapBody', '', 'Idle', 'idle'];
+/** motionManager 空闲类动作候选分组 */
+const IDLE_GROUP_CANDIDATES = ['Idle', 'idle', '', 'Tap', 'TapBody'];
+
 /**
  * 创建应用实例
  * @param {Object} options - 配置选项
@@ -92,15 +97,23 @@ function createLive2DApp({
   function playRandomManagerMotion(groupCandidates, priority, tag) {
     const mm = model?.internalModel?.motionManager;
     if (!mm || !Array.isArray(groupCandidates) || !groupCandidates.length) return false;
-
     for (const group of groupCandidates) {
       try {
         mm.startRandomMotion(group, priority);
         dlog(tag, { model: currentModelKey, group });
         return true;
-      } catch (_) {
-        // 尝试下一个分组
-      }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /**
+   * 先按分组尝试 motionManager，失败则用 fallback 列表随机播一条（用于 tap/idle 等统一逻辑）
+   */
+  function playWithManagerOrFallback(groupCandidates, fallbackList, fallbackPriority, tag) {
+    if (playRandomManagerMotion(groupCandidates, fallbackPriority, tag)) return true;
+    if (fallbackList?.length) {
+      return playMotionSafely(pickRandom(fallbackList), fallbackPriority, tag);
     }
     return false;
   }
@@ -303,10 +316,7 @@ function createLive2DApp({
 
       bindTickerOnce();
       armIdleTimer();
-
-      canvas.addEventListener('click', () => {
-        tryPlayTapMotion();
-      });
+      // 单击由 overlay 的 overlay-tap → ipc-bridge → playTapMotion 触发，主窗口 setIgnoreMouseEvents 后 canvas 收不到点击，此处不重复绑定
     } catch (err) {
       dlog('init-error', { message: err?.message, stack: err?.stack });
       showError(`初始化失败：${err?.message || '未知错误'}`);
@@ -498,54 +508,46 @@ function createLive2DApp({
    * 启动眨眼动画（定时器循环）
    * 优先使用模型特定的眨眼动作，失败则降级到参数闭眼
    */
+  const BLINK_MOTIONS_BY_MODEL = {
+    kuromi: ['face_closeeye_01', 'face_closeeye_02'],
+    cinamoroll: ['face_closeeye_01', 'face_closeeye_02', 'face_closeeye_03', 'face_closeeye_04', 'face_closeeye_05'],
+  };
+
   function startEyeBlink() {
     if (blinkTimer) clearTimeout(blinkTimer);
     blinkTimer = null;
     const blink = () => {
       if (!model?.internalModel) return;
-      
-      const blinkMotionsByModel = {
-        kuromi: ['face_closeeye_01', 'face_closeeye_02'],
-        cinamoroll: ['face_closeeye_01', 'face_closeeye_02', 'face_closeeye_03', 'face_closeeye_04', 'face_closeeye_05'],
-      };
-      const blinkMotions = blinkMotionsByModel[currentModelKey] || ['face_closeeye_01', 'face_closeeye_02'];
-      const randomBlink = blinkMotions[Math.floor(Math.random() * blinkMotions.length)];
-      
-      if (canPlayMotion(model)) {
+      const blinkList = BLINK_MOTIONS_BY_MODEL[currentModelKey];
+      const randomBlink = blinkList?.length ? pickRandom(blinkList) : null;
+
+      if (randomBlink && canPlayMotion(model)) {
         try {
           model.motion(randomBlink, 0, window.PIXI.live2d.MotionPriority.IDLE);
-        } catch (e) {
-          // 降级到参数闭眼
-          const core = model.internalModel.coreModel;
-          core.setParameterValueById('ParamEyeLOpen', 0);
-          core.setParameterValueById('ParamEyeROpen', 0);
-          setTimeout(() => {
-            if (model?.internalModel) {
-              core.setParameterValueById('ParamEyeLOpen', 1);
-              core.setParameterValueById('ParamEyeROpen', 1);
-            }
-          }, 150);
+        } catch (_) {
+          setBlinkParams(0);
+          setTimeout(() => setBlinkParams(1), 150);
         }
       } else {
-        // 直接使用参数闭眼
-        const core = model.internalModel.coreModel;
-        core.setParameterValueById('ParamEyeLOpen', 0);
-        core.setParameterValueById('ParamEyeROpen', 0);
-        setTimeout(() => {
-          if (model?.internalModel) {
-            core.setParameterValueById('ParamEyeLOpen', 1);
-            core.setParameterValueById('ParamEyeROpen', 1);
-          }
-        }, 150);
+        setBlinkParams(0);
+        setTimeout(() => setBlinkParams(1), 150);
       }
       blinkTimer = setTimeout(blink, 2000 + Math.random() * 3000);
     };
+    function setBlinkParams(value) {
+      if (!model?.internalModel) return;
+      const core = model.internalModel.coreModel;
+      try {
+        core.setParameterValueById('ParamEyeLOpen', value);
+        core.setParameterValueById('ParamEyeROpen', value);
+      } catch (_) {}
+    }
     blink();
   }
 
   /**
    * 更新眼球/头部跟随（由 PIXI ticker 每帧调用）
-   * 根据鼠标位置计算目标角度，使用平滑插值避免与动作系统冲突
+   * 鼠标坐标映射到舞台空间，用归一化距离 + atan 软限幅，帧率无关平滑
    */
   function updateEyeFollow() {
     if (!model?.internalModel || !app?.view) return;
@@ -555,44 +557,36 @@ function createLive2DApp({
     let dx = mouseX - modelX;
     let dy = mouseY - modelY;
 
-    const baseRef = Math.min(stageWidth, stageHeight) || 1;
-    let maxDistance = baseRef * 0.24;
+    const diagonal = Math.sqrt(stageWidth * stageWidth + stageHeight * stageHeight) || 1;
+    const maxDistance = diagonal * 0.22;
 
-    if (currentModelKey === 'kuromi') {
-      maxDistance *= 0.7;
-    }
-
-    // 中心轻微“死区”：小幅抖动时不大幅移动视线
-    const deadZone = maxDistance * 0.08;
+    const deadZone = maxDistance * 0.06;
     if (Math.abs(dx) < deadZone) dx = 0;
     if (Math.abs(dy) < deadZone) dy = 0;
 
-    const targetEyeX = Math.max(-1, Math.min(1, dx / maxDistance));
-    const targetEyeY = Math.max(-1, Math.min(1, -dy / maxDistance));
+    const rawX = dx / maxDistance;
+    const rawY = -dy / maxDistance;
+    const clampSoft = (v) => Math.max(-1, Math.min(1, Math.atan(v * 1.2) * (2 / Math.PI)));
+    const targetEyeX = clampSoft(rawX);
+    const targetEyeY = clampSoft(rawY);
 
     const core = model.internalModel.coreModel;
     const motionManager = model.internalModel.motionManager;
     const isMotionPlaying = motionManager && !motionManager.isFinished();
 
-    // 更平滑的插值：眼睛稍快，头部明显更慢
-    let eyeLerp = isMotionPlaying ? 0.10 : 0.18;
-    let headLerp = isMotionPlaying ? 0.06 : 0.12;
-
-    if (currentModelKey === 'kuromi') {
-      eyeLerp *= 1.4;
-      headLerp *= 1.3;
-    }
+    const dt = app.ticker?.deltaTime ?? 1;
+    const eyeSpeed = (isMotionPlaying ? 4 : 8) * (dt / 60);
+    const headSpeed = (isMotionPlaying ? 2.5 : 5) * (dt / 60);
+    const eyeLerp = 1 - Math.exp(-eyeSpeed);
+    const headLerp = 1 - Math.exp(-headSpeed);
 
     smoothEyeX += (targetEyeX - smoothEyeX) * eyeLerp;
     smoothEyeY += (targetEyeY - smoothEyeY) * eyeLerp;
 
-    const headDistanceDivisor = currentModelKey === 'kuromi' ? 8 : 18;
-    const headBaseScale = currentModelKey === 'kuromi' ? 0.2 : 0.14;
-    const headMultiplier = currentModelKey === 'kuromi' ? 2.4 : 1.1;
-
-    const baseHeadX = Math.max(-20, Math.min(20, dx / headDistanceDivisor)) * headBaseScale * headMultiplier;
-    const baseHeadY = Math.max(-20, Math.min(20, -dy / headDistanceDivisor)) * headBaseScale * headMultiplier;
-
+    const headScale = 0.12;
+    const headRange = 18;
+    const baseHeadX = Math.max(-headRange, Math.min(headRange, dx / (diagonal * 0.08))) * headScale;
+    const baseHeadY = Math.max(-headRange, Math.min(headRange, -dy / (diagonal * 0.08))) * headScale;
     smoothHeadX += (baseHeadX - smoothHeadX) * headLerp;
     smoothHeadY += (baseHeadY - smoothHeadY) * headLerp;
 
@@ -610,13 +604,14 @@ function createLive2DApp({
     if (!payload?.point || !payload?.bounds || !app?.view) return;
     const { point, bounds } = payload;
 
-    const kx = stageWidth / bounds.width;
-    const ky = stageHeight / bounds.height;
-    const targetX = (point.x - bounds.x) * kx;
-    const targetY = (point.y - bounds.y) * ky;
+    const kx = stageWidth / (bounds.width || 1);
+    const ky = stageHeight / (bounds.height || 1);
+    let targetX = (point.x - bounds.x) * kx;
+    let targetY = (point.y - bounds.y) * ky;
+    targetX = Math.max(0, Math.min(stageWidth, targetX));
+    targetY = Math.max(0, Math.min(stageHeight, targetY));
 
-    // 输入端也做平滑，避免鼠标轨迹的锯齿感
-    const lerp = 0.22;
+    const lerp = 0.2;
     mouseX += (targetX - mouseX) * lerp;
     mouseY += (targetY - mouseY) * lerp;
 
@@ -633,114 +628,49 @@ function createLive2DApp({
   }
 
   /**
-   * 播放特殊动作
-   * @param {string} kind - 动作类型（special1/micro 等）
+   * 播放特殊动作（名称均来自 motionUtil，与 model3.json 一致）
    */
   function playSpecialMotion(kind = 'special1') {
     if (!model) return;
-
-    // 1）优先从 motionManager 中随机挑选高优先级动作
-    const specialGroups = kind === 'micro'
-      ? ['Idle', 'idle', '', 'Tap', 'TapBody']
-      : ['Tap', 'TapBody', '', 'Idle', 'idle'];
-    if (playRandomManagerMotion(
-      specialGroups,
-      window.PIXI.live2d.MotionPriority.FORCE,
-      'play-special-manager-random',
-    )) {
-      return;
-    }
-
-    // 2）回退到手工维护的特定表（主要给 Kuromi / Mark 特效用）
-    const specialMotions = {
-      kuromi: ['face_hearteyes_01', 'face_surprise_03', 'face_shy_03', 's-common-joy01', 's-common-surprise01'],
-      mark: ['Tap', 'Idle'],
-    };
-
-    if (specialMotions[currentModelKey]) {
-      const motionName = pickRandom(specialMotions[currentModelKey]);
-      if (
-        playMotionSafely(
-          motionName,
-          window.PIXI.live2d.MotionPriority.FORCE,
-          `play-special-${currentModelKey}`,
-        )
-      ) {
-        return;
-      }
-    }
-
-    // 3）再不行就用 idle / tap 的通用动作做兜底
+    const priorityForce = window.PIXI.live2d.MotionPriority.FORCE;
+    const groups = kind === 'micro' ? IDLE_GROUP_CANDIDATES : TAP_GROUP_CANDIDATES;
+    if (playRandomManagerMotion(groups, priorityForce, 'play-special-manager')) return;
     if (kind === 'micro' && idleMotions?.length) {
-      playMotionSafely(
-        pickRandom(idleMotions),
-        window.PIXI.live2d.MotionPriority.IDLE,
-        'play-special-generic-idle',
-      );
+      playMotionSafely(pickRandom(idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-special-idle');
       return;
     }
-
     if (tapMotions?.length) {
-      playMotionSafely(
-        pickRandom(tapMotions),
-        window.PIXI.live2d.MotionPriority.FORCE,
-        'play-special-generic-tap',
-      );
+      playMotionSafely(pickRandom(tapMotions), priorityForce, 'play-special-tap');
     }
   }
 
   /**
-   * 尝试播放微动作（鼠标悬停时触发）
+   * 尝试播放微动作（鼠标悬停时触发，使用 idleMotions）
    */
   function tryPlayMicroMotion() {
     if (!model) return;
-
-    // 1）优先尝试从 motionManager 中随机选一条 idle/通用动作
-    if (
-      playRandomManagerMotion(
-        ['Idle', 'idle', 'Tap', 'TapBody', ''],
-        window.PIXI.live2d.MotionPriority.IDLE,
-        'play-micro-manager-random',
-      )
-    ) {
-      return;
-    }
-
-    const microMotions = {
-      kuromi: ['s-common-joy01', 's-common-tilthead01', 's-common-lookdown01'],
-      mark: ['Idle'],
-    };
-
-    if (microMotions[currentModelKey]) {
-      playMotionSafely(pickRandom(microMotions[currentModelKey]), window.PIXI.live2d.MotionPriority.IDLE, `play-micro-${currentModelKey}`);
-      return;
-    }
-
+    const priorityIdle = window.PIXI.live2d.MotionPriority.IDLE;
+    if (playRandomManagerMotion(IDLE_GROUP_CANDIDATES, priorityIdle, 'play-micro-manager')) return;
     if (idleMotions?.length) {
-      playMotionSafely(pickRandom(idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-micro-generic');
+      playMotionSafely(pickRandom(idleMotions), priorityIdle, 'play-micro');
     }
   }
 
   /**
-   * 尝试播放点击动作（用户点击模型时触发）
+   * 尝试播放点击动作（用户点击模型时触发，由 overlay-tap 驱动）
+   * 优先从 tapMotions 列表随机播一条，保证每次点击能切换到不同动作；失败再走 motionManager 分组
    */
   function tryPlayTapMotion() {
     if (!model) return;
-    // 1）优先用 motionManager 的点击分组 / 通用分组
-    if (
-      playRandomManagerMotion(
-        ['Tap', 'TapBody', '', 'Idle', 'idle'],
-        window.PIXI.live2d.MotionPriority.FORCE,
-        'play-tap-manager-random',
-      )
-    ) {
-      lastInteractionAt = Date.now();
-      armIdleTimer();
-      return;
+    const priorityForce = window.PIXI.live2d.MotionPriority.FORCE;
+    let played = false;
+    if (tapMotions?.length) {
+      played = playMotionSafely(pickRandom(tapMotions), priorityForce, 'play-tap');
     }
-
-    // 2）回退到手工维护的 tapMotions
-    if (playMotionSafely(pickRandom(tapMotions), window.PIXI.live2d.MotionPriority.FORCE, 'play-tap-motion')) {
+    if (!played) {
+      played = playRandomManagerMotion(TAP_GROUP_CANDIDATES, priorityForce, 'play-tap-manager');
+    }
+    if (played) {
       lastInteractionAt = Date.now();
       armIdleTimer();
     }
@@ -780,19 +710,12 @@ function createLive2DApp({
    */
   function tryPlayIdleMotion() {
     if (!model) return;
-    // 1）motionManager 优先：Idle / idle / 通用
-    if (
-      playRandomManagerMotion(
-        ['Idle', 'idle', '', 'Tap', 'TapBody'],
-        window.PIXI.live2d.MotionPriority.IDLE,
-        'play-idle-manager-random',
-      )
-    ) {
-      return;
-    }
-
-    // 2）兜底到手工 idle 列表
-    playMotionSafely(pickRandom(idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-idle-motion');
+    playWithManagerOrFallback(
+      IDLE_GROUP_CANDIDATES,
+      idleMotions,
+      window.PIXI.live2d.MotionPriority.IDLE,
+      'play-idle',
+    );
   }
 
   return {

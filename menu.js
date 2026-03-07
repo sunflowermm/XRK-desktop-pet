@@ -239,23 +239,28 @@ function buildMenu() {
 
   const items = [];
 
-  // 窗口置顶
+  const checkLabel = (label, checked) => (checked ? `✓ ${label}` : label);
+  const close = () => ipcRenderer.send('close-menu-window');
+
   items.push(createMenuItem(
-    menuData.isAlwaysOnTop ? '✓ 窗口置顶' : '窗口置顶',
+    checkLabel('窗口置顶', menuData.isAlwaysOnTop),
     () => {
-      ipcRenderer.send('context-menu-action', 'toggle-always-on-top', {
-        checked: !menuData.isAlwaysOnTop
-      });
-      ipcRenderer.send('close-menu-window');
+      ipcRenderer.send('context-menu-action', 'toggle-always-on-top', { checked: !menuData.isAlwaysOnTop });
+      close();
     }
   ));
-
-  // 锁定窗口
   items.push(createMenuItem(
-    menuData.isLocked ? '✓ 锁定窗口' : '锁定窗口',
+    checkLabel('锁定窗口', menuData.isLocked),
     () => {
       ipcRenderer.send('context-menu-action', 'toggle-lock');
-      ipcRenderer.send('close-menu-window');
+      close();
+    }
+  ));
+  items.push(createMenuItem(
+    checkLabel('显示桌宠', menuData.isVisible),
+    () => {
+      ipcRenderer.send('context-menu-action', 'toggle-visibility');
+      close();
     }
   ));
 
@@ -286,30 +291,18 @@ function buildMenu() {
     { label: '轻松动一动', action: 'play-motion', payload: { kind: 'micro' } },
   ]));
 
-  // 显示/隐藏
-  items.push(createMenuItem('显示/隐藏', () => {
-    ipcRenderer.send('context-menu-action', 'toggle-visibility');
-    ipcRenderer.send('close-menu-window');
-  }));
-
-  // 设置
   items.push(createMenuItem('设置', () => {
     ipcRenderer.send('context-menu-action', 'open-settings');
-    ipcRenderer.send('close-menu-window');
+    close();
   }));
-
-  // 模型窗口调试
   items.push(createMenuItem('调试模型窗口大小', () => {
     ipcRenderer.send('context-menu-action', 'open-stage-debug-panel');
-    ipcRenderer.send('close-menu-window');
+    close();
   }));
-
   items.push(createSeparator());
-
-  // 退出
   items.push(createMenuItem('退出', () => {
     ipcRenderer.send('context-menu-action', 'quit');
-    ipcRenderer.send('close-menu-window');
+    close();
   }));
 
   return items;

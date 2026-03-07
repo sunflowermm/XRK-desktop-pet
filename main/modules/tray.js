@@ -42,6 +42,8 @@ function createTray({
     return null;
   }
 
+  let boundWindowId = null;
+
   const resolveWindow = ({ createIfMissing } = { createIfMissing: false }) => {
     try {
       let win = typeof getMainWindow === 'function' ? getMainWindow() : null;
@@ -55,6 +57,21 @@ function createTray({
     }
   };
 
+  const refreshMenu = () => setTimeout(() => tray?.updateMenu?.(), 50);
+
+  const bindWindowStateListeners = (win) => {
+    if (!win || win.isDestroyed?.()) return;
+    if (boundWindowId === win.id) return;
+    boundWindowId = win.id;
+    try {
+      win.on('show', refreshMenu);
+      win.on('hide', refreshMenu);
+      win.on('closed', () => {
+        if (boundWindowId === win.id) boundWindowId = null;
+      });
+    } catch (_) {}
+  };
+
   const toggleVisibility = () => {
     const win = resolveWindow({ createIfMissing: true });
     if (!win) return;
@@ -66,24 +83,26 @@ function createTray({
 
   const updateContextMenu = () => {
     const win = resolveWindow();
+    bindWindowStateListeners(win);
     const visible = !!(win && win.isVisible && win.isVisible());
     const locked = typeof getLockState === 'function' ? !!getLockState() : false;
+    const checkLabel = (label, checked) => (checked ? `✓ ${label}` : label);
 
     const template = [
       {
-        label: visible ? '隐藏桌宠' : '显示桌宠',
+        // Windows 上 tray 的 checkbox 勾选可能不显示，使用文本前缀确保状态可见
+        label: checkLabel('显示桌宠', visible),
         click: () => {
           toggleVisibility();
+          refreshMenu();
         },
       },
       { type: 'separator' },
       {
-        label: '锁定窗口',
-        type: 'checkbox',
-        checked: locked,
+        label: checkLabel('锁定窗口', locked),
         click: () => {
           if (typeof toggleLock === 'function') toggleLock();
-          setTimeout(updateContextMenu, 50);
+          refreshMenu();
         },
       },
     ];
@@ -125,6 +144,7 @@ function createTray({
     const contextMenu = Menu.buildFromTemplate(template);
 
     tray.setContextMenu(contextMenu);
+    return contextMenu;
   };
 
   tray.updateMenu = updateContextMenu;
@@ -132,12 +152,13 @@ function createTray({
 
   tray.on('click', () => {
     toggleVisibility();
-    setTimeout(updateContextMenu, 50);
+    refreshMenu();
   });
 
   tray.on('right-click', () => {
-    updateContextMenu();
-    tray.popUpContextMenu();
+    const menu = updateContextMenu();
+    // 传入 menu，避免首次右键弹出仍显示旧菜单状态
+    tray.popUpContextMenu(menu);
   });
 
   updateContextMenu();

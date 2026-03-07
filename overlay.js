@@ -20,8 +20,16 @@ ipcRenderer.invoke('get-lock-state').then((locked) => {
   updateLockState();
 }).catch(updateLockState);
 
+const DRAG_THRESHOLD_PX = 5;
+
 let pointerId = null;
 let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+/** 本次手势是否发生过拖拽（用于区分点击与拖拽，避免拖拽松开后误触发 tap） */
+let didDragThisGesture = false;
+/** pointerdown 时的按键，用于 pointerup 时仅对左键发送 tap */
+let pointerDownButton = -1;
 
 const DEBUG_RUN = process.env.npm_lifecycle_event === 'start';
 function dlog(tag, payload) {
@@ -46,45 +54,58 @@ const dragChannel = {
   },
 };
 
-function beginDrag(e) {
-  if (e.button !== 0 || isDragging || isLocked) return;
-  e.preventDefault();
-  e.stopPropagation();
-
+function onPointerDown(e) {
+  if (isLocked) return;
   pointerId = e.pointerId;
-  isDragging = true;
+  pointerDownButton = e.button;
+  isDragging = false;
+  didDragThisGesture = false;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
   try { (e.target || handle).setPointerCapture(pointerId); } catch (err) {}
-  dlog('pointerdown', { pointerId, clientX: e.clientX, clientY: e.clientY });
-  dragChannel.start(e.clientX, e.clientY);
+  dlog('pointerdown', { pointerId, button: e.button, clientX: e.clientX, clientY: e.clientY });
 }
 
-handle.addEventListener('pointerdown', beginDrag);
+handle.addEventListener('pointerdown', onPointerDown);
 box.addEventListener('pointerdown', (e) => {
   if (e.target === handle) return;
-  beginDrag(e);
+  onPointerDown(e);
 });
 
 function onPointerMove(e) {
-  if (!isDragging || (pointerId !== null && e.pointerId !== pointerId)) return;
+  if (pointerId !== null && e.pointerId !== pointerId) return;
   if (e.buttons === 0) {
     endDrag(e);
     return;
   }
-  dragChannel.step();
+  if (!isDragging) {
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    if (dx * dx + dy * dy > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+      isDragging = true;
+      didDragThisGesture = true;
+      dragChannel.start(dragStartX, dragStartY);
+    }
+  }
+  if (isDragging) dragChannel.step();
 }
 
 handle.addEventListener('pointermove', onPointerMove);
 box.addEventListener('pointermove', onPointerMove);
 
 function endDrag(e) {
-  if (!isDragging) return;
-  isDragging = false;
-  if (pointerId !== null) {
-    try { (e?.target || handle).releasePointerCapture(pointerId); } catch (err) {}
-    pointerId = null;
+  if (pointerId === null) return;
+  const wasLeftClick = pointerDownButton === 0;
+  if (isDragging) {
+    dragChannel.end();
+    dlog('pointerup', {});
+  } else if (wasLeftClick && !didDragThisGesture) {
+    sendTap();
   }
-  dlog('pointerup', {});
-  dragChannel.end();
+  isDragging = false;
+  pointerDownButton = -1;
+  try { (e?.target || handle).releasePointerCapture(pointerId); } catch (err) {}
+  pointerId = null;
 }
 
 handle.addEventListener('pointerup', endDrag);
@@ -114,14 +135,3 @@ function sendTap() {
   dlog('tap-click', { from: 'overlay' });
   ipcRenderer.send('overlay-tap');
 }
-
-function handleClick(e) {
-  if (e.button !== 0 || isDragging || isLocked) return;
-  setTimeout(() => sendTap(), 50);
-}
-
-handle.addEventListener('click', handleClick);
-box.addEventListener('click', (e) => {
-  if (e.target === handle) return;
-  handleClick(e);
-});
