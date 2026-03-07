@@ -40,6 +40,19 @@ function createLive2DApp({
   let stageWidth = initialCfg.stageWidth || 150;
   let stageHeight = initialCfg.stageHeight || 160;
 
+  // 眼球/头部跟随相关的预计算常量，避免在 ticker 中重复做开方和乘除运算
+  let eyeFollowDiagonal = Math.sqrt(stageWidth * stageWidth + stageHeight * stageHeight) || 1;
+  let eyeFollowMaxDistance = eyeFollowDiagonal * 0.22;
+  let eyeFollowDeadZone = eyeFollowMaxDistance * 0.06;
+  let eyeFollowInvDiagForHead = 1 / (eyeFollowDiagonal * 0.08 || 1);
+
+  function recalcEyeFollowConstants() {
+    eyeFollowDiagonal = Math.sqrt(stageWidth * stageWidth + stageHeight * stageHeight) || 1;
+    eyeFollowMaxDistance = eyeFollowDiagonal * 0.22;
+    eyeFollowDeadZone = eyeFollowMaxDistance * 0.06;
+    eyeFollowInvDiagForHead = 1 / (eyeFollowDiagonal * 0.08 || 1);
+  }
+
   const MODEL_PRESETS = {
     kuromi: 'models/kuromi/sub_sanrio_kuromi_t10.model3.json',
     mark: 'models/mark_free_zh/runtime/mark_free_t04.model3.json',
@@ -75,6 +88,9 @@ function createLive2DApp({
   function canPlayMotion(modelInstance) {
     return modelInstance?.motion && typeof modelInstance.motion === 'function';
   }
+
+  // 软限幅函数，放在外层避免在 ticker 中重复创建闭包
+  const clampSoft = (v) => Math.max(-1, Math.min(1, Math.atan(v * 1.2) * (2 / Math.PI)));
 
   function playMotionSafely(motionName, priority, tag) {
     if (!motionName || !canPlayMotion(model)) return false;
@@ -222,6 +238,7 @@ function createLive2DApp({
     const cfg = getStageDebugConfig();
     stageWidth = cfg.stageWidth;
     stageHeight = cfg.stageHeight;
+    recalcEyeFollowConstants();
     app?.renderer?.resize(stageWidth, stageHeight);
     
     const now = Date.now();
@@ -285,6 +302,7 @@ function createLive2DApp({
       const stageCfg = getStageDebugConfig();
       stageWidth = stageCfg.stageWidth;
       stageHeight = stageCfg.stageHeight;
+      recalcEyeFollowConstants();
       app = new PIXI.Application({
         view: canvas,
         width: stageWidth,
@@ -367,8 +385,9 @@ function createLive2DApp({
   function bindTickerOnce() {
     if (tickerBound || !app) return;
     tickerBound = true;
-    app.ticker.maxFPS = 120;
-    app.ticker.minFPS = 60;
+    // 对桌面宠物而言 60FPS 已足够，适当降低上限减少 CPU / GPU 占用
+    app.ticker.maxFPS = 60;
+    app.ticker.minFPS = 30;
     app.ticker.speed = 1.0;
     app.ticker.add(() => updateEyeFollow());
   }
@@ -557,16 +576,13 @@ function createLive2DApp({
     let dx = mouseX - modelX;
     let dy = mouseY - modelY;
 
-    const diagonal = Math.sqrt(stageWidth * stageWidth + stageHeight * stageHeight) || 1;
-    const maxDistance = diagonal * 0.22;
-
-    const deadZone = maxDistance * 0.06;
+    const maxDistance = eyeFollowMaxDistance;
+    const deadZone = eyeFollowDeadZone;
     if (Math.abs(dx) < deadZone) dx = 0;
     if (Math.abs(dy) < deadZone) dy = 0;
 
     const rawX = dx / maxDistance;
     const rawY = -dy / maxDistance;
-    const clampSoft = (v) => Math.max(-1, Math.min(1, Math.atan(v * 1.2) * (2 / Math.PI)));
     const targetEyeX = clampSoft(rawX);
     const targetEyeY = clampSoft(rawY);
 
@@ -585,8 +601,8 @@ function createLive2DApp({
 
     const headScale = 0.12;
     const headRange = 18;
-    const baseHeadX = Math.max(-headRange, Math.min(headRange, dx / (diagonal * 0.08))) * headScale;
-    const baseHeadY = Math.max(-headRange, Math.min(headRange, -dy / (diagonal * 0.08))) * headScale;
+    const baseHeadX = Math.max(-headRange, Math.min(headRange, dx * eyeFollowInvDiagForHead)) * headScale;
+    const baseHeadY = Math.max(-headRange, Math.min(headRange, -dy * eyeFollowInvDiagForHead)) * headScale;
     smoothHeadX += (baseHeadX - smoothHeadX) * headLerp;
     smoothHeadY += (baseHeadY - smoothHeadY) * headLerp;
 
