@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { BrowserWindow, Notification } = require('electron');
 const { autoUpdater } = require('electron-updater');
 
 const CHECK_TIMEOUT_MS = 30000;
@@ -12,27 +13,84 @@ function formatError(err) {
   return `${msg}\n${stack.split('\n').slice(0, 8).join('\n')}`;
 }
 
+/** generic 平台（Gitee/GitCode）从 baseUrl 拉取 releaseNotes.md */
+async function fetchReleaseNotesFromGeneric(app) {
+  try {
+    const configPath = path.join(app.getAppPath(), 'update-config.json');
+    if (!fs.existsSync(configPath)) return null;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (!config?.baseUrl) return null;
+    const res = await fetch(String(config.baseUrl).replace(/\/$/, '') + '/releaseNotes.md');
+    if (res?.ok) return await res.text();
+  } catch (_) {}
+  return null;
+}
+
 function createUpdater({
   app,
   ipcMain,
-  dialog,
   getMainWindow,
   dlog = () => {},
   silentOnStartup = true,
 } = {}) {
   if (!app) throw new Error('createUpdater: missing app');
 
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  let updateDialogShown = false;
+  let updateDialogWindow = null;
   let isChecking = false;
 
-  function sendToRenderers(channel, ...args) {
+  function closeUpdateDialog() {
     try {
-      const win = typeof getMainWindow === 'function' ? getMainWindow() : null;
-      if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+      if (updateDialogWindow && !updateDialogWindow.isDestroyed()) {
+        updateDialogWindow.close();
+      }
     } catch (_) {}
+    updateDialogWindow = null;
+  }
+
+  function sendToUpdateDialog(channel, ...args) {
+    try {
+      if (updateDialogWindow && !updateDialogWindow.isDestroyed()) {
+        updateDialogWindow.webContents.send(channel, ...args);
+      }
+    } catch (_) {}
+  }
+
+  function showNotification(title, body) {
+    try {
+      if (Notification.isSupported()) {
+        new Notification({ title, body }).show();
+      }
+    } catch (_) {}
+  }
+
+  function createUpdateDialog(version, releaseNotes) {
+    closeUpdateDialog();
+    const htmlPath = path.join(__dirname, '..', '..', 'update-dialog.html');
+    updateDialogWindow = new BrowserWindow({
+      width: 420,
+      height: 480,
+      minWidth: 380,
+      minHeight: 400,
+      resizable: true,
+      minimizable: true,
+      maximizable: true,
+      title: '更新 - 向日葵桌面宠物',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+    updateDialogWindow.loadFile(htmlPath);
+    updateDialogWindow.on('closed', () => {
+      updateDialogWindow = null;
+    });
+    updateDialogWindow.webContents.once('did-finish-load', () => {
+      sendToUpdateDialog('update-dialog-init', { version, releaseNotes: releaseNotes || '' });
+    });
   }
 
   function removeCheckListeners() {
@@ -46,7 +104,6 @@ function createUpdater({
   function checkForUpdatesWithTimeout() {
     if (isChecking) return Promise.reject(new Error('更新检查正在进行中，请勿重复调用'));
     isChecking = true;
-    sendToRenderers('update-log', { message: '更新: 检查中', level: 'info' });
 
     return new Promise((resolve, reject) => {
       let done = false;
@@ -59,15 +116,18 @@ function createUpdater({
         isChecking = false;
       };
 
-      const onAvailable = (info) => {
+      const onAvailable = async (info) => {
         if (done) return;
         cleanup();
         removeCheckListeners();
         dlog('auto-update-available', { version: info?.version });
-        sendToRenderers('update-status', 'available', {
-          version: info?.version,
-          releaseNotes: info?.releaseNotes,
-        });
+
+        let releaseNotes = info?.releaseNotes;
+        if (!releaseNotes || (typeof releaseNotes === 'string' && !releaseNotes.trim())) {
+          releaseNotes = await fetchReleaseNotesFromGeneric(app);
+        }
+
+        createUpdateDialog(info?.version || '新版本', releaseNotes);
         resolve(info);
       };
 
@@ -76,7 +136,7 @@ function createUpdater({
         cleanup();
         removeCheckListeners();
         dlog('auto-update-not-available', {});
-        sendToRenderers('update-status', 'not-available', {});
+        showNotification('向日葵桌面宠物', '已是最新版本');
         resolve(null);
       };
 
@@ -85,7 +145,7 @@ function createUpdater({
         cleanup();
         removeCheckListeners();
         dlog('auto-update-error', { error: formatError(err) });
-        sendToRenderers('update-status', 'error', { message: err?.message || '检查更新失败' });
+        showNotification('检查更新失败', err?.message || '请检查网络');
         reject(err);
       };
 
@@ -129,56 +189,51 @@ function createUpdater({
   function wireEvents() {
     autoUpdater.on('download-progress', (progress) => {
       const percent = Math.max(0, Math.min(100, progress?.percent || 0));
-      sendToRenderers('update-progress', {
-        percent: Math.round(percent),
+      sendToUpdateDialog('update-dialog-progress', {
+        percent,
         transferred: progress?.transferred || 0,
         total: progress?.total || 0,
       });
     });
 
-    autoUpdater.on('update-downloaded', async (info) => {
-      sendToRenderers('update-status', 'downloaded', { version: info?.version });
-      if (updateDialogShown) return;
-      updateDialogShown = true;
-
-      if (!dialog) return;
-      try {
-        const v = info?.version ? `v${info.version}` : '新版本';
-        const res = await dialog.showMessageBox({
-          type: 'info',
-          title: '更新完成',
-          message: `已在后台更新到 ${v}，现在重启以完成安装？`,
-          buttons: ['立即重启', '稍后'],
-          defaultId: 0,
-          cancelId: 1,
-          noLink: true,
-        });
-        if (res.response === 0) {
-          setTimeout(() => {
-            try {
-              autoUpdater.quitAndInstall(false, true);
-            } catch (_) {
-              app.relaunch();
-              app.exit(0);
-            }
-          }, 150);
-        }
-      } catch (e) {
-        dlog('auto-update-dialog-error', { error: String(e) });
-      }
+    autoUpdater.on('update-downloaded', (info) => {
+      sendToUpdateDialog('update-dialog-downloaded', { version: info?.version });
     });
   }
 
   function registerIpc() {
     if (!ipcMain) return;
 
+    ipcMain.on('update-dialog-start-download', () => {
+      try {
+        autoUpdater.downloadUpdate().catch((e) => {
+          dlog('download-update-error', { error: formatError(e) });
+          showNotification('下载更新失败', e?.message || '请重试');
+          closeUpdateDialog();
+        });
+      } catch (e) {
+        showNotification('下载更新失败', e?.message || '请重试');
+        closeUpdateDialog();
+      }
+    });
+
+    ipcMain.on('update-dialog-install', () => {
+      try {
+        autoUpdater.quitAndInstall(false, true);
+      } catch (_) {
+        app.relaunch();
+        app.exit(0);
+      }
+    });
+
+    ipcMain.on('update-dialog-close', () => {
+      closeUpdateDialog();
+    });
+
     ipcMain.handle('get-app-version', () => app.getVersion());
     ipcMain.handle('get-update-source', () => {
       try {
-        // 打包后会被写入 extraMetadata（由 publish.js 注入）
-        // 开发环境可能不存在该字段
-        // eslint-disable-next-line global-require
-        const pkg = require('../../package.json');
+        const pkg = require(path.join(app.getAppPath(), 'package.json'));
         return pkg?.xrkUpdateSource || null;
       } catch (_) {
         return null;
@@ -247,4 +302,3 @@ function createUpdater({
 module.exports = {
   createUpdater,
 };
-

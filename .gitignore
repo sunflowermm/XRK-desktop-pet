@@ -47,3 +47,6 @@ pnpm-debug.log*
 ### Local config / secrets (不进仓库)
 config.json
 .env
+
+### 构建时生成（publish 写入，不提交）
+update-config.json

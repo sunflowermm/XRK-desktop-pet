@@ -1171,7 +1171,6 @@ app.whenReady().then(() => {
     updater = createUpdater({
       app,
       ipcMain,
-      dialog,
       getMainWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
       dlog,
       silentOnStartup: true,

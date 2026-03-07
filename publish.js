@@ -122,6 +122,27 @@ function getDistArtifacts() {
   return artifacts;
 }
 
+/** generic 平台需额外上传 releaseNotes.md，供应用检查更新时拉取显示 */
+function getReleaseNotesArtifact() {
+  const p = path.join(historyDir, `v${version}.md`);
+  if (!existsSync(p)) return null;
+  return { name: 'releaseNotes.md', filePath: p };
+}
+
+const UPDATE_CONFIG_PATH = path.join(rootDir, 'update-config.json');
+
+/** 构建前写入 update-config.json，供 generic 平台（Gitee/GitCode）运行时拉取 releaseNotes */
+function writeUpdateConfig(platformKey) {
+  const publishConfig = getPublishConfig(platformKey);
+  const baseUrl =
+    publishConfig?.provider === 'generic' && publishConfig?.url
+      ? publishConfig.url.endsWith('/')
+        ? publishConfig.url
+        : publishConfig.url + '/'
+      : null;
+  writeFileSync(UPDATE_CONFIG_PATH, JSON.stringify({ baseUrl }), 'utf-8');
+}
+
 function createElectronBuilderConfig(platformKey) {
   const publishConfig = getPublishConfig(platformKey);
   if (!publishConfig) throw new Error(`未知平台: ${platformKey}`);
@@ -181,6 +202,7 @@ function clearDistDir() {
 }
 
 function runElectronBuilder(platformKey, doPublish) {
+  writeUpdateConfig(platformKey);
   clearDistDir();
   createElectronBuilderConfig(platformKey);
 
@@ -377,7 +399,11 @@ async function uploadGiteeArtifacts(platform, token, releaseId) {
   const base = `${platform.apiBase}/repos/${platform.owner}/${platform.repo}`;
   const attachUrl = `${base}/releases/${releaseId}/attach_files`;
 
-  for (const file of getDistArtifacts()) {
+  const artifacts = [...getDistArtifacts()];
+  const releaseNotesArt = getReleaseNotesArtifact();
+  if (releaseNotesArt) artifacts.push(releaseNotesArt);
+
+  for (const file of artifacts) {
     await deleteExistingGiteeAttachments(platform, token, releaseId, file.name);
     const res = await uploadByFormData(`${attachUrl}`, 'access_token', token, file);
 
@@ -490,8 +516,12 @@ async function publishGitCode(platform, releaseNotes) {
   const base = `${platform.apiBase}/repos/${platform.owner}/${platform.repo}`;
   const headers = { 'PRIVATE-TOKEN': token };
 
+  const artifacts = [...getDistArtifacts()];
+  const releaseNotesArt = getReleaseNotesArtifact();
+  if (releaseNotesArt) artifacts.push(releaseNotesArt);
+
   try {
-    for (const file of getDistArtifacts()) {
+    for (const file of artifacts) {
       try {
         const uploadUrlRes = await fetch(
           `${base}/releases/${encodeURIComponent(
