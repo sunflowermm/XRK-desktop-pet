@@ -32,13 +32,9 @@ let didDragThisGesture = false;
 let pointerDownButton = -1;
 
 const DEBUG_RUN = process.env.npm_lifecycle_event === 'start';
-function dlog(tag, payload) {
+function dlog() {
+  // overlay 不再输出调试日志，避免干扰，只依赖渲染层日志
   if (!DEBUG_RUN) return;
-  try {
-    const ts = new Date().toISOString();
-    const safe = payload ? JSON.stringify(payload).slice(0, 1200) : '';
-    console.log(`[desktop-pet][overlay][${ts}][${tag}] ${safe}`);
-  } catch (_) {}
 }
 
 const dragChannel = {

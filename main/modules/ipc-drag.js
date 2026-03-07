@@ -52,22 +52,7 @@ function registerDragIpc({
         lastPosition.x = newX;
         lastPosition.y = newY;
         
-        const now = Date.now();
-        if (now - lastDragLogAt > 300) {
-          lastDragLogAt = now;
-          const [mwX, mwY] = mainWindow.getPosition();
-          const [mwW, mwH] = mainWindow.getContentSize();
-          const [dwX, dwY] = dragWindow.getPosition();
-          const [dwW, dwH] = dragWindow.getContentSize();
-          dlog('drag-step', {
-            point,
-            target: { x: newX, y: newY },
-            dragDiff,
-            lockedWindowSize,
-            mainWindow: { x: mwX, y: mwY, width: mwW, height: mwH },
-            dragWindow: { x: dwX, y: dwY, width: dwW, height: dwH },
-          });
-        }
+        // 拖拽过程不再输出调试日志，避免刷屏
       } catch (e) {}
     }
   }
@@ -121,15 +106,6 @@ function registerDragIpc({
           
           lastPosition.x = mx;
           lastPosition.y = my;
-          
-          dlog('drag-start', {
-            clickInfo,
-            cursorPoint: point,
-            mainWindow: { x: mx, y: my, width: cw, height: ch },
-            dragWindowSize: dragWindow ? dragWindow.getContentSize() : null,
-            lockedWindowSize,
-            dragDiff,
-          });
           
           applyDragStepFromCursor();
         } catch (e) {

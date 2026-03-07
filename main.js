@@ -152,21 +152,14 @@ function refreshAppConfig() {
   return getAppConfig._cache;
 }
 
-// 调试配置：从配置文件读取，或通过环境变量启用
+// 调试配置：仅在 npm start 运行时启用（生产环境完全静音）
 function isDebugMode() {
-  const config = getAppConfig();
-  return config?.debugMode === true || process.env.npm_lifecycle_event === 'start';
+  return process.env.npm_lifecycle_event === 'start';
 }
 
-function dlog(tag, payload) {
+function dlog() {
+  // 主进程不再输出调试日志，避免刷屏（保留 renderer 中的鼠标/模型日志）
   if (!isDebugMode()) return;
-  try {
-    const ts = new Date().toISOString();
-    const safe = payload ? JSON.stringify(payload).slice(0, 2000) : '';
-    console.log(`[desktop-pet][${ts}][${tag}] ${safe}`);
-  } catch (e) {
-    try { console.log(`[desktop-pet][${tag}]`, payload); } catch (_) {}
-  }
 }
 
 // 拖拽相关的计时逻辑已移动到 main/modules/ipc-drag.js 中
@@ -255,16 +248,23 @@ function createMainWindow() {
     });
   });
 
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    try {
-      console.log(
-        `[desktop-pet][renderer-console][level=${level}]`,
-        JSON.stringify({ message, line, sourceId }).slice(0, 2000),
-      );
-    } catch (_) {
-      console.log('[desktop-pet][renderer-console]', message);
-    }
-  });
+  if (isDebugMode()) {
+    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+      // 只透传我们自己 renderer 内的调试日志（带 [desktop-pet][renderer] 前缀），
+      // 屏蔽 Live2D / Pixi / Electron 自己的初始化与安全警告日志。
+      if (typeof message !== 'string' || !message.startsWith('[desktop-pet][renderer][')) {
+        return;
+      }
+      try {
+        console.log(
+          `[desktop-pet][renderer-console][level=${level}]`,
+          JSON.stringify({ message, line, sourceId }).slice(0, 2000),
+        );
+      } catch (_) {
+        console.log('[desktop-pet][renderer-console]', message);
+      }
+    });
+  }
 
   // 禁用开发者工具（不自动打开）
   // 如需调试，可通过设置窗口启用 autoOpenDevTools

@@ -17,6 +17,7 @@ function startCursorBroadcast(getMainWindow, screen) {
     try {
       const point = screen.getCursorScreenPoint();
       const bounds = mainWindow.getBounds();
+      // 始终广播全局鼠标位置，由渲染进程自行做“窗口内/外”映射和衰减
       mainWindow.webContents.send('cursor-point', { point, bounds });
     } catch (_) {}
   }, 16);

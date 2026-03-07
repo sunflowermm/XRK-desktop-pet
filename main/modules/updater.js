@@ -26,7 +26,7 @@ async function fetchReleaseNotesFromGeneric(app) {
   return null;
 }
 
-function createUpdater({
+  function createUpdater({
   app,
   ipcMain,
   dlog = () => {},
@@ -268,8 +268,8 @@ function createUpdater({
 
     if (silentOnStartup) {
       setImmediate(() => {
-        checkForUpdatesWithTimeout().catch((e) => {
-          dlog('auto-update-check-error', { error: formatError(e) });
+        checkForUpdatesWithTimeout().catch(() => {
+        // 更新检查失败时不再输出调试日志，仅通过通知提示用户
         });
       });
     }

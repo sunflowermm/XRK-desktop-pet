@@ -4,7 +4,6 @@ const { createLive2DApp } = require('./renderer/live2d-core');
 const { setupIpcBridge } = require('./renderer/ipc-bridge');
 
 window.addEventListener('DOMContentLoaded', () => {
-  console.log('[desktop-pet][renderer] DOMContentLoaded');
   const { ipcRenderer } = require('electron');
   
   // 从主进程获取配置

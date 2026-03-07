@@ -13,13 +13,8 @@
 
 const path = require('path');
 const { ipcRenderer } = require('electron');
-const { getTapMotionsForModel, getIdleMotionsForModel, pickRandom } = require('../testables/motionUtil');
+const { getMotionConfig, pickRandom } = require('../testables/motionUtil');
 const { MODEL_STAGE_DEBUG_CONFIG } = require('../stageConfig');
-
-/** motionManager 点击类动作候选分组（用于 tap / 点击切换动作） */
-const TAP_GROUP_CANDIDATES = ['Tap', 'TapBody', '', 'Idle', 'idle'];
-/** motionManager 空闲类动作候选分组 */
-const IDLE_GROUP_CANDIDATES = ['Idle', 'idle', '', 'Tap', 'TapBody'];
 
 /**
  * 创建应用实例
@@ -40,19 +35,6 @@ function createLive2DApp({
   let stageWidth = initialCfg.stageWidth || 150;
   let stageHeight = initialCfg.stageHeight || 160;
 
-  // 眼球/头部跟随相关的预计算常量，避免在 ticker 中重复做开方和乘除运算
-  let eyeFollowDiagonal = Math.sqrt(stageWidth * stageWidth + stageHeight * stageHeight) || 1;
-  let eyeFollowMaxDistance = eyeFollowDiagonal * 0.22;
-  let eyeFollowDeadZone = eyeFollowMaxDistance * 0.06;
-  let eyeFollowInvDiagForHead = 1 / (eyeFollowDiagonal * 0.08 || 1);
-
-  function recalcEyeFollowConstants() {
-    eyeFollowDiagonal = Math.sqrt(stageWidth * stageWidth + stageHeight * stageHeight) || 1;
-    eyeFollowMaxDistance = eyeFollowDiagonal * 0.22;
-    eyeFollowDeadZone = eyeFollowMaxDistance * 0.06;
-    eyeFollowInvDiagForHead = 1 / (eyeFollowDiagonal * 0.08 || 1);
-  }
-
   const MODEL_PRESETS = {
     kuromi: 'models/kuromi/sub_sanrio_kuromi_t10.model3.json',
     mark: 'models/mark_free_zh/runtime/mark_free_t04.model3.json',
@@ -63,17 +45,22 @@ function createLive2DApp({
 
   /**
    * 调试日志输出
+   * - 默认只保留鼠标/模型动态相关日志
+   * - 但始终允许错误类日志（*-error / init-error），方便排查问题
    * @param {string} tag - 日志标签
    * @param {Object} payload - 日志数据
    */
   function dlog(tag, payload) {
     const isDev = process.env.npm_lifecycle_event === 'start';
-    const alwaysLog = ['model-loading', 'model-loaded', 'model-load-error', 'stage-debug-patch-applied'];
-    if (isDev || alwaysLog.includes(tag)) {
+    if (!isDev) return;
+    const isMotionLog = tag === 'cursor-point-debug' || tag === 'eye-follow-debug';
+    const isErrorLog = tag === 'init-error' || tag.endsWith('-error');
+    if (!isMotionLog && !isErrorLog) return;
+    try {
       const ts = new Date().toISOString();
       const safe = payload ? JSON.stringify(payload).slice(0, 2000) : '';
       console.log(`[desktop-pet][renderer][${ts}][${tag}] ${safe}`);
-    }
+    } catch (_) {}
   }
   
   /**
@@ -138,26 +125,20 @@ function createLive2DApp({
   let currentStageSizeKey = initialStageSizeKey;
   let app;
   let model;
-  let mouseX = 0;
-  let mouseY = 0;
+  // 归一化的全局“注视方向”，由 onCursorPoint 根据屏幕坐标计算，[-1, 1]
+  let eyeDirX = 0;
+  let eyeDirY = 0;
   let tickerBound = false;
   let blinkTimer = null;
   let modelBaseSize = null; // { width, height } at scale=1
   let modelBaseScale = 1; // 基于基准窗口尺寸的基础缩放（固定值，不随档位变化）
-  let eyeXParamIds = [];
-  let eyeYParamIds = [];
-  let headXParamIds = [];
-  let headYParamIds = [];
-  let tapMotions = getTapMotionsForModel(currentModelKey);
-  let idleMotions = getIdleMotionsForModel(currentModelKey);
+  let motionConfig = getMotionConfig(currentModelKey);
   let lastInteractionAt = Date.now();
   let idleTimer = null;
-  let smoothEyeX = 0;
-  let smoothEyeY = 0;
-  let smoothHeadX = 0;
-  let smoothHeadY = 0;
   let lastMicroMotionAt = 0;
   let lastStageLogAt = 0;
+  let lastCursorLogAt = 0;
+  let lastEyeFollowLogAt = 0;
   
   /**
    * 运行时调试覆盖（仅内存，不污染共享配置）
@@ -238,7 +219,6 @@ function createLive2DApp({
     const cfg = getStageDebugConfig();
     stageWidth = cfg.stageWidth;
     stageHeight = cfg.stageHeight;
-    recalcEyeFollowConstants();
     app?.renderer?.resize(stageWidth, stageHeight);
     
     const now = Date.now();
@@ -302,7 +282,6 @@ function createLive2DApp({
       const stageCfg = getStageDebugConfig();
       stageWidth = stageCfg.stageWidth;
       stageHeight = stageCfg.stageHeight;
-      recalcEyeFollowConstants();
       app = new PIXI.Application({
         view: canvas,
         width: stageWidth,
@@ -371,11 +350,7 @@ function createLive2DApp({
       positionModel();
     });
 
-    mouseX = app.screen.width / 2;
-    mouseY = app.screen.height / 2;
-
     startEyeBlink();
-    detectAvailableParams();
   }
 
   /**
@@ -409,22 +384,13 @@ function createLive2DApp({
       model = null;
     }
 
-    // 完全重置所有状态，避免旧模型参数影响新模型
+    // 完全重置尺寸相关状态，避免旧模型尺寸影响新模型
     modelBaseSize = null;
     modelBaseScale = 1;
-    eyeXParamIds = [];
-    eyeYParamIds = [];
-    headXParamIds = [];
-    headYParamIds = [];
-    smoothEyeX = 0;
-    smoothEyeY = 0;
-    smoothHeadX = 0;
-    smoothHeadY = 0;
 
     // 更新模型相关配置
     currentModelKey = nextKey;
-    tapMotions = getTapMotionsForModel(currentModelKey);
-    idleMotions = getIdleMotionsForModel(currentModelKey);
+    motionConfig = getMotionConfig(currentModelKey);
 
     // 使用新模型的配置
     const cfg = getStageDebugConfig(currentModelKey, currentStageSizeKey);
@@ -501,29 +467,6 @@ function createLive2DApp({
   }
 
   /**
-   * 检测模型可用的参数 ID（眼球/头部跟随）
-   */
-  function detectAvailableParams() {
-    if (!model?.internalModel?.coreModel) return;
-    const core = model.internalModel.coreModel;
-
-    const pick = (candidates, value) =>
-      candidates.filter((id) => {
-        try {
-          core.setParameterValueById(id, value);
-          return true;
-        } catch (e) {
-          return false;
-        }
-      });
-
-    eyeXParamIds = pick(['ParamEyeBallX', 'EyeBallX'], 0);
-    eyeYParamIds = pick(['ParamEyeBallY', 'EyeBallY'], 0);
-    headXParamIds = pick(['ParamAngleX', 'AngleX'], 0);
-    headYParamIds = pick(['ParamAngleY', 'AngleY'], 0);
-  }
-
-  /**
    * 启动眨眼动画（定时器循环）
    * 优先使用模型特定的眨眼动作，失败则降级到参数闭眼
    */
@@ -573,43 +516,25 @@ function createLive2DApp({
 
     const modelX = model.x;
     const modelY = model.y;
-    let dx = mouseX - modelX;
-    let dy = mouseY - modelY;
+    // 眼球方向主要由全局鼠标方向决定（eyeDirX / eyeDirY），
+    // 将标准化方向直接交给库内置的 focusController 处理，
+    // 由 pixi-live2d 自己完成参数插值和与动作的混合。
+    const rawX = clampSoft(eyeDirX);
+    const rawY = clampSoft(eyeDirY);
 
-    const maxDistance = eyeFollowMaxDistance;
-    const deadZone = eyeFollowDeadZone;
-    if (Math.abs(dx) < deadZone) dx = 0;
-    if (Math.abs(dy) < deadZone) dy = 0;
+    try {
+      const focus = model.internalModel && model.internalModel.focusController;
+      if (focus && typeof focus.focus === 'function') {
+        focus.focus(rawX, rawY);
+      }
+    } catch (_) {}
 
-    const rawX = dx / maxDistance;
-    const rawY = -dy / maxDistance;
-    const targetEyeX = clampSoft(rawX);
-    const targetEyeY = clampSoft(rawY);
-
-    const core = model.internalModel.coreModel;
-    const motionManager = model.internalModel.motionManager;
-    const isMotionPlaying = motionManager && !motionManager.isFinished();
-
-    const dt = app.ticker?.deltaTime ?? 1;
-    const eyeSpeed = (isMotionPlaying ? 4 : 8) * (dt / 60);
-    const headSpeed = (isMotionPlaying ? 2.5 : 5) * (dt / 60);
-    const eyeLerp = 1 - Math.exp(-eyeSpeed);
-    const headLerp = 1 - Math.exp(-headSpeed);
-
-    smoothEyeX += (targetEyeX - smoothEyeX) * eyeLerp;
-    smoothEyeY += (targetEyeY - smoothEyeY) * eyeLerp;
-
-    const headScale = 0.12;
-    const headRange = 18;
-    const baseHeadX = Math.max(-headRange, Math.min(headRange, dx * eyeFollowInvDiagForHead)) * headScale;
-    const baseHeadY = Math.max(-headRange, Math.min(headRange, -dy * eyeFollowInvDiagForHead)) * headScale;
-    smoothHeadX += (baseHeadX - smoothHeadX) * headLerp;
-    smoothHeadY += (baseHeadY - smoothHeadY) * headLerp;
-
-    eyeXParamIds.forEach((id) => core.setParameterValueById(id, smoothEyeX));
-    eyeYParamIds.forEach((id) => core.setParameterValueById(id, smoothEyeY));
-    headXParamIds.forEach((id) => core.setParameterValueById(id, smoothHeadX));
-    headYParamIds.forEach((id) => core.setParameterValueById(id, smoothHeadY));
+    // 调试：低频记录一次眼球/头部状态，便于调整算法（仅 npm start 时输出）
+    const now = Date.now();
+    if (now - lastEyeFollowLogAt > 800) {
+      lastEyeFollowLogAt = now;
+      dlog('eye-follow-debug', { rawX, rawY, modelX, modelY });
+    }
   }
 
   /**
@@ -620,16 +545,28 @@ function createLive2DApp({
     if (!payload?.point || !payload?.bounds || !app?.view) return;
     const { point, bounds } = payload;
 
-    const kx = stageWidth / (bounds.width || 1);
-    const ky = stageHeight / (bounds.height || 1);
-    let targetX = (point.x - bounds.x) * kx;
-    let targetY = (point.y - bounds.y) * ky;
-    targetX = Math.max(0, Math.min(stageWidth, targetX));
-    targetY = Math.max(0, Math.min(stageHeight, targetY));
+    // 以窗口中心为基准，只使用“方向”，距离超过一定阈值后效果饱和，避免全屏时过度偏移
+    const centerScreenX = bounds.x + bounds.width * 0.5;
+    const centerScreenY = bounds.y + bounds.height * 0.5;
+    let vx = point.x - centerScreenX;
+    let vy = point.y - centerScreenY;
+    const len = Math.sqrt(vx * vx + vy * vy) || 1;
+    vx /= len;
+    vy /= len;
 
-    const lerp = 0.2;
-    mouseX += (targetX - mouseX) * lerp;
-    mouseY += (targetY - mouseY) * lerp;
+    // 记录全局"看向"方向，供 updateEyeFollow 使用
+    eyeDirX = vx;
+    eyeDirY = -vy;
+
+    const now = Date.now();
+    if (now - lastCursorLogAt > 800) {
+      lastCursorLogAt = now;
+      dlog('cursor-point-debug', {
+        point,
+        bounds,
+        dir: { x: vx, y: vy, len },
+      });
+    }
 
     lastInteractionAt = Date.now();
     if (lastInteractionAt - lastMicroMotionAt > 9000) {
@@ -649,14 +586,14 @@ function createLive2DApp({
   function playSpecialMotion(kind = 'special1') {
     if (!model) return;
     const priorityForce = window.PIXI.live2d.MotionPriority.FORCE;
-    const groups = kind === 'micro' ? IDLE_GROUP_CANDIDATES : TAP_GROUP_CANDIDATES;
+    const groups = kind === 'micro' ? motionConfig.idleGroups : motionConfig.tapGroups;
     if (playRandomManagerMotion(groups, priorityForce, 'play-special-manager')) return;
-    if (kind === 'micro' && idleMotions?.length) {
-      playMotionSafely(pickRandom(idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-special-idle');
+    if (kind === 'micro' && motionConfig.idleMotions?.length) {
+      playMotionSafely(pickRandom(motionConfig.idleMotions), window.PIXI.live2d.MotionPriority.IDLE, 'play-special-idle');
       return;
     }
-    if (tapMotions?.length) {
-      playMotionSafely(pickRandom(tapMotions), priorityForce, 'play-special-tap');
+    if (motionConfig.tapMotions?.length) {
+      playMotionSafely(pickRandom(motionConfig.tapMotions), priorityForce, 'play-special-tap');
     }
   }
 
@@ -666,9 +603,9 @@ function createLive2DApp({
   function tryPlayMicroMotion() {
     if (!model) return;
     const priorityIdle = window.PIXI.live2d.MotionPriority.IDLE;
-    if (playRandomManagerMotion(IDLE_GROUP_CANDIDATES, priorityIdle, 'play-micro-manager')) return;
-    if (idleMotions?.length) {
-      playMotionSafely(pickRandom(idleMotions), priorityIdle, 'play-micro');
+    if (playRandomManagerMotion(motionConfig.idleGroups, priorityIdle, 'play-micro-manager')) return;
+    if (motionConfig.idleMotions?.length) {
+      playMotionSafely(pickRandom(motionConfig.idleMotions), priorityIdle, 'play-micro');
     }
   }
 
@@ -680,11 +617,11 @@ function createLive2DApp({
     if (!model) return;
     const priorityForce = window.PIXI.live2d.MotionPriority.FORCE;
     let played = false;
-    if (tapMotions?.length) {
-      played = playMotionSafely(pickRandom(tapMotions), priorityForce, 'play-tap');
+    if (motionConfig.tapMotions?.length) {
+      played = playMotionSafely(pickRandom(motionConfig.tapMotions), priorityForce, 'play-tap');
     }
     if (!played) {
-      played = playRandomManagerMotion(TAP_GROUP_CANDIDATES, priorityForce, 'play-tap-manager');
+      played = playRandomManagerMotion(motionConfig.tapGroups, priorityForce, 'play-tap-manager');
     }
     if (played) {
       lastInteractionAt = Date.now();
@@ -727,8 +664,8 @@ function createLive2DApp({
   function tryPlayIdleMotion() {
     if (!model) return;
     playWithManagerOrFallback(
-      IDLE_GROUP_CANDIDATES,
-      idleMotions,
+      motionConfig.idleGroups,
+      motionConfig.idleMotions,
       window.PIXI.live2d.MotionPriority.IDLE,
       'play-idle',
     );
