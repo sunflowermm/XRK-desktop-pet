@@ -29,7 +29,6 @@ async function fetchReleaseNotesFromGeneric(app) {
 function createUpdater({
   app,
   ipcMain,
-  getMainWindow,
   dlog = () => {},
   silentOnStartup = true,
 } = {}) {
@@ -230,29 +229,10 @@ function createUpdater({
       closeUpdateDialog();
     });
 
-    ipcMain.handle('get-app-version', () => app.getVersion());
-    ipcMain.handle('get-update-source', () => {
-      try {
-        const pkg = require(path.join(app.getAppPath(), 'package.json'));
-        return pkg?.xrkUpdateSource || null;
-      } catch (_) {
-        return null;
-      }
-    });
-
     ipcMain.handle('check-for-updates', async () => {
       if (!app.isPackaged) return { success: true, skipped: true, reason: 'unpacked' };
       try {
         await checkForUpdatesWithTimeout();
-        return { success: true };
-      } catch (e) {
-        return { success: false, error: e?.message || String(e) };
-      }
-    });
-
-    ipcMain.handle('install-update', async () => {
-      try {
-        autoUpdater.quitAndInstall(false, true);
         return { success: true };
       } catch (e) {
         return { success: false, error: e?.message || String(e) };
@@ -272,10 +252,6 @@ function createUpdater({
     }
   }
 
-  async function clearCacheWithFeedback() {
-    return clearUpdateCache();
-  }
-
   function start() {
     if (!app.isPackaged) return;
     wireEvents();
@@ -292,10 +268,8 @@ function createUpdater({
 
   return {
     start,
-    checkForUpdatesWithTimeout,
     checkNow,
     clearUpdateCache,
-    clearCacheWithFeedback,
   };
 }
 

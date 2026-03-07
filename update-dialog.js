@@ -7,31 +7,81 @@ const { ipcRenderer } = require('electron');
 const contentEl = document.getElementById('update-content');
 const btnGroupEl = document.getElementById('btn-group');
 
+/** 转义 HTML，防止 XSS 与尖括号破坏布局 */
+function escapeHtml(s) {
+  if (s == null || s === '') return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** 安全链接：仅允许 http/https/mailto，移除 href 中的危险字符（含已转义实体） */
+function safeHref(url) {
+  const raw = String(url || '').trim();
+  const u = raw.toLowerCase();
+  if (!u.startsWith('https://') && !u.startsWith('http://') && !u.startsWith('mailto:')) return '#';
+  return raw
+    .replace(/&quot;/gi, '%22')
+    .replace(/&#39;/g, '%27')
+    .replace(/["'<>]/g, (c) => ({ '"': '%22', "'": '%27', '<': '%3C', '>': '%3E' }[c] || c));
+}
+
+/** 行内 Markdown：**粗体**、*斜体*、`代码`、[链接](url)（在已转义后的字符串上调用） */
+function inlineMd(escaped) {
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => `<a href="${safeHref(url)}" target="_blank" rel="noopener">${text}</a>`);
+}
+
 function renderMarkdown(md) {
   if (!md) return '';
   const lines = String(md).split('\n');
   const out = [];
   let inList = false;
+  let inOrderedList = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const m = line.match(/^# (.+)$/) || line.match(/^## (.+)$/) || line.match(/^### (.+)$/);
-    if (m) {
+    const hMatch = line.match(/^(#{1,4}) (.+)$/);
+    if (hMatch) {
       if (inList) { out.push('</ul>'); inList = false; }
-      const tag = line.startsWith('###') ? 'h5' : line.startsWith('##') ? 'h4' : 'h3';
-      out.push(`<${tag}>${m[1]}</${tag}>`);
+      if (inOrderedList) { out.push('</ol>'); inOrderedList = false; }
+      const level = hMatch[1].length;
+      const tag = level === 1 ? 'h3' : level === 2 ? 'h4' : level === 3 ? 'h5' : 'h6';
+      out.push(`<${tag}>${inlineMd(escapeHtml(hMatch[2]))}</${tag}>`);
       continue;
     }
-    const li = line.match(/^[-*] (.+)$/);
-    if (li) {
+    const ulMatch = line.match(/^[-*] (.+)$/);
+    if (ulMatch) {
+      if (inOrderedList) { out.push('</ol>'); inOrderedList = false; }
       if (!inList) { out.push('<ul>'); inList = true; }
-      out.push(`<li>${li[1]}</li>`);
+      out.push(`<li>${inlineMd(escapeHtml(ulMatch[1]))}</li>`);
+      continue;
+    }
+    const olMatch = line.match(/^\d+\. (.+)$/);
+    if (olMatch) {
+      if (inList) { out.push('</ul>'); inList = false; }
+      if (!inOrderedList) { out.push('<ol>'); inOrderedList = true; }
+      out.push(`<li>${inlineMd(escapeHtml(olMatch[1]))}</li>`);
+      continue;
+    }
+    if (line.trim() === '---') {
+      if (inList) { out.push('</ul>'); inList = false; }
+      if (inOrderedList) { out.push('</ol>'); inOrderedList = false; }
+      out.push('<hr>');
       continue;
     }
     if (inList) { out.push('</ul>'); inList = false; }
+    if (inOrderedList) { out.push('</ol>'); inOrderedList = false; }
     const t = line.trim();
-    if (t) out.push(`<p>${t}</p>`);
+    if (t) out.push(`<p>${inlineMd(escapeHtml(t))}</p>`);
   }
   if (inList) out.push('</ul>');
+  if (inOrderedList) out.push('</ol>');
   return out.join('\n');
 }
 
@@ -62,13 +112,14 @@ function setButtons(buttons) {
 
 // 阶段 1：发现新版本
 function showAvailable(version, releaseNotes) {
+  const safeVer = escapeHtml(String(version || ''));
   const notesHtml = releaseNotes
     ? `<div class="update-notes-wrap"><div class="update-notes">${renderMarkdown(releaseNotes)}</div></div>`
     : '';
   setContent(`
     <div class="update-banner">
       <span class="update-banner__icon">🎉</span>
-      <p class="update-banner__text">发现新版本 <strong class="update-banner__version">v${version}</strong></p>
+      <p class="update-banner__text">发现新版本 <strong class="update-banner__version">v${safeVer}</strong></p>
     </div>
     ${notesHtml}
     <p class="update-dialog-desc">点击「更新」下载，可最小化窗口到后台继续使用桌宠，下载完成后点击「立即重启」即可。</p>
@@ -110,10 +161,11 @@ function updateProgress(percent, transferred, total) {
 
 // 阶段 3：更新已就绪
 function showDownloaded(version) {
+  const safeVer = escapeHtml(String(version || ''));
   setContent(`
     <div class="update-banner update-banner--success">
       <span class="update-banner__icon">✅</span>
-      <p class="update-banner__text">更新 <strong class="update-banner__version">v${version}</strong> 已下载完成</p>
+      <p class="update-banner__text">更新 <strong class="update-banner__version">v${safeVer}</strong> 已下载完成</p>
     </div>
     <p class="update-dialog-desc">点击「立即重启」应用更新，或选「稍后」在关闭/下次启动时自动安装。</p>
   `);

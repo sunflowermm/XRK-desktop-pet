@@ -708,21 +708,33 @@ ipcMain.on('request-context-menu-data', (event) => {
 
 // ==================== 菜单窗口管理 ====================
 let menuWindow = null;
+/** 首次创建后待显示：{ x, y, menuData }，在 did-finish-load + resize 后清除并 show */
+let menuPendingShow = null;
 
-function createMenuWindow(x, y, menuData) {
-  // 关闭已存在的菜单窗口
-  if (menuWindow && !menuWindow.isDestroyed()) {
-    menuWindow.close();
-  }
-
+function getMenuScreenPosition(clientX, clientY) {
+  const win = getDragWindow() || mainWindow;
+  const bounds = win && !win.isDestroyed() ? win.getBounds() : { x: 0, y: 0 };
   const display = screen.getPrimaryDisplay();
-  const bounds = display.bounds;
-  
+  const db = display.bounds;
+  const maxX = db.width - 200;
+  const maxY = db.height - 400;
+  const screenX = bounds.x + clientX;
+  const screenY = bounds.y + clientY;
+  return {
+    x: Math.max(db.x, Math.min(screenX, maxX)),
+    y: Math.max(db.y, Math.min(screenY, maxY)),
+  };
+}
+
+function ensureMenuWindow() {
+  if (menuWindow && !menuWindow.isDestroyed()) return menuWindow;
+
   menuWindow = new BrowserWindow({
     width: 200,
     height: 400,
-    x: Math.round(x),
-    y: Math.round(y),
+    x: 0,
+    y: 0,
+    show: false,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -736,109 +748,101 @@ function createMenuWindow(x, y, menuData) {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      devTools: false  // 禁用开发者工具
+      devTools: false,
     },
   });
 
   applyNoMenuBar(menuWindow);
-  // 捕获本次创建的窗口引用，避免 menuWindow 被提前置空导致回调里崩溃
   const win = menuWindow;
-  
-  // 设置菜单窗口层级高于主窗口
-  try {
-    win.setAlwaysOnTop(true, 'pop-up-menu');
-  } catch (e) {}
-  
-  win.loadFile(path.join(__dirname, 'menu.html'), {
-    query: { data: JSON.stringify(menuData) }
-  });
+  try { win.setAlwaysOnTop(true, 'pop-up-menu'); } catch (_) {}
+
+  win.loadFile(path.join(__dirname, 'menu.html'));
 
   win.on('closed', () => {
-    if (menuWindow === win) menuWindow = null;
+    if (menuWindow === win) {
+      menuWindow = null;
+      menuPendingShow = null;
+    }
   });
-  
+
   win.webContents.once('did-finish-load', () => {
     if (win.isDestroyed()) return;
     win.setIgnoreMouseEvents(false);
-    // 发送窗口位置给渲染进程
-    const [x, y] = win.getPosition();
-    win.webContents.send('menu-window-position', { x, y });
-  });
-  
-  // 监听窗口移动，更新位置信息
-  win.on('move', () => {
-    if (!win.isDestroyed()) {
-      const [x, y] = win.getPosition();
-      win.webContents.send('menu-window-position', { x, y });
-    }
-  });
-  
-  // 接收菜单窗口的日志
-  win.webContents.on('console-message', (event, level, message) => {
-    if (message.includes('[MENU]') || message.includes('[MENU ERROR]')) {
-      console.log(`[MenuWindow] ${message}`);
-    }
+    sendMenuPosition(win);
+    if (menuPendingShow) win.webContents.send('menu-set-data', menuPendingShow.menuData);
   });
 
-  // 体验优化：点击窗口外（失焦）时自动收起菜单
-  // - 比 renderer 侧做全局 hook 更可靠（跨应用/桌面点击也会触发 blur）
-  // - 延迟一拍，避免某些情况下刚创建时的瞬时 blur 误关
+  win.on('move', () => { sendMenuPosition(win); });
+
   win.on('blur', () => {
     setTimeout(() => {
       try {
-        if (!win.isDestroyed()) win.close();
+        if (!win.isDestroyed() && win.isVisible()) win.hide();
       } catch (_) {}
-    }, 30);
+    }, 80);
   });
-  
+
   return win;
 }
 
-function closeMenuWindow() {
-  if (menuWindow && !menuWindow.isDestroyed()) {
-    menuWindow.close();
-  }
-}
-
-// ==================== 菜单 IPC 处理 ====================
-ipcMain.on('show-menu-window', (event, screenX, screenY) => {
-  const sizePresets = getStageSizePresets(currentModelKey);
-  const config = getAppConfig();
-  const menuData = {
-    sizePresets,
+function showMenuWindowAt(x, y) {
+  const data = {
+    sizePresets: getStageSizePresets(currentModelKey),
     isAlwaysOnTop: mainWindow?.isAlwaysOnTop() ?? true,
-    isLocked: config.isLocked || false,
+    isLocked: getAppConfig().isLocked || false,
     isVisible: mainWindow?.isVisible?.() ?? true,
   };
-  const display = screen.getPrimaryDisplay();
-  const bounds = display.bounds;
-  const maxX = bounds.width - 200;
-  const maxY = bounds.height - 400;
-  const x = Math.max(bounds.x, Math.min(screenX, maxX));
-    const y = Math.max(bounds.y, Math.min(screenY, maxY));
-    createMenuWindow(x, y, menuData);
+
+  if (menuWindow && !menuWindow.isDestroyed()) {
+    menuWindow.setPosition(Math.round(x), Math.round(y));
+    menuWindow.webContents.send('menu-set-data', data);
+    return;
+  }
+
+  menuPendingShow = { x: Math.round(x), y: Math.round(y), menuData: data };
+  ensureMenuWindow();
+}
+
+function hideMenuWindow() {
+  if (menuWindow && !menuWindow.isDestroyed()) {
+    menuWindow.hide();
+  }
+  menuPendingShow = null;
+}
+
+ipcMain.on('show-menu-window', (event, clientX, clientY) => {
+  const { x, y } = getMenuScreenPosition(clientX, clientY);
+  showMenuWindowAt(x, y);
 });
 
-ipcMain.on('close-menu-window', closeMenuWindow);
+ipcMain.on('close-menu-window', hideMenuWindow);
+
+function doShowMenuWindow() {
+  if (!menuWindow || menuWindow.isDestroyed()) return;
+  if (menuPendingShow) {
+    menuWindow.setPosition(menuPendingShow.x, menuPendingShow.y);
+    menuPendingShow = null;
+  }
+  if (!menuWindow.isVisible()) menuWindow.show();
+}
+
+function sendMenuPosition(win) {
+  if (!win || win.isDestroyed()) return;
+  const [x, y] = win.getPosition();
+  const bounds = screen.getPrimaryDisplay().bounds;
+  win.webContents.send('menu-window-position', { x, y, bounds: { width: bounds.width, height: bounds.height, x: bounds.x, y: bounds.y } });
+}
 
 ipcMain.on('resize-menu-window', (event, width, height) => {
-  if (menuWindow && !menuWindow.isDestroyed()) {
-    const [currentWidth, currentHeight] = menuWindow.getContentSize();
-    dlog('resize-menu-window', { 
-      requested: { width, height },
-      current: { width: currentWidth, height: currentHeight }
-    });
-    if (currentWidth !== width || currentHeight !== height) {
-      // 获取当前窗口位置，保持位置不变
-      const [x, y] = menuWindow.getPosition();
-      menuWindow.setContentSize(width, height);
-      // 确保窗口位置不变（因为扩展窗口可能会改变位置）
-      menuWindow.setPosition(x, y);
-      dlog('Menu window resized (position unchanged)', { width, height, x, y });
-      // 更新窗口位置信息
-      menuWindow.webContents.send('menu-window-position', { x, y });
-    }
+  if (!menuWindow || menuWindow.isDestroyed()) return;
+  const [currentWidth, currentHeight] = menuWindow.getContentSize();
+  if (currentWidth !== width || currentHeight !== height) {
+    const [x, y] = menuWindow.getPosition();
+    menuWindow.setContentSize(width, height);
+    menuWindow.setPosition(x, y);
+    sendMenuPosition(menuWindow);
   }
+  doShowMenuWindow();
 });
 
 ipcMain.handle('get-window-position', () => {
@@ -848,17 +852,6 @@ ipcMain.handle('get-window-position', () => {
     return { x, y };
   }
   return { x: 0, y: 0 };
-});
-
-ipcMain.handle('get-screen-bounds', () => {
-  const display = screen.getPrimaryDisplay();
-  const bounds = display.bounds;
-  return {
-    width: bounds.width,
-    height: bounds.height,
-    x: bounds.x,
-    y: bounds.y
-  };
 });
 
 // 获取锁定状态
@@ -1142,7 +1135,7 @@ app.whenReady().then(() => {
       toggleLock();
     },
     checkForUpdates: () => updater?.checkNow?.(),
-    clearUpdateCache: () => updater?.clearCacheWithFeedback?.(),
+    clearUpdateCache: () => updater?.clearUpdateCache?.(),
   });
   
   // 将 trayInstance 保存到全局，供 toggleLock 使用
@@ -1167,7 +1160,6 @@ app.whenReady().then(() => {
     updater = createUpdater({
       app,
       ipcMain,
-      getMainWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
       dlog,
       silentOnStartup: true,
     });
@@ -1175,6 +1167,8 @@ app.whenReady().then(() => {
   } catch (e) {
     dlog('updater-init-error', { error: String(e) });
   }
+
+  setImmediate(() => ensureMenuWindow());
 });
 
 app.on('window-all-closed', () => {

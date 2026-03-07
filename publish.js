@@ -111,7 +111,7 @@ function getDistArtifacts() {
     artifacts.push({ name, filePath: path.join(distDir, name) });
   }
 
-  // 上传 blockmap（差分更新需要）
+  // 上传 blockmap：electron-updater 会优先尝试差分更新（只下变更块），失败则回退为完整包；服务器需支持 HTTP Range
   const blockmapFiles = files.filter(
     (name) => name.toLowerCase().endsWith('.blockmap') && name.includes(version)
   );

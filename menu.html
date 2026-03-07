@@ -34,6 +34,7 @@
 
     #menu {
       background: rgba(30, 30, 30, 0.95);
+      backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 6px;
       padding: 4px 0;
@@ -87,31 +88,26 @@
       position: absolute;
       left: 0;
       top: 0;
-      background: rgba(30, 30, 30, 0.95) !important;
+      width: max-content;
+      min-width: 160px;
+      background: rgba(30, 30, 30, 0.95);
+      backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 6px;
       padding: 4px 0;
-      min-width: 180px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
       display: none;
       visibility: hidden;
       opacity: 0;
       z-index: 9999;
       pointer-events: auto;
-      white-space: normal;
       transform: translateZ(0);
-      overflow: visible;
       isolation: isolate;
     }
-    
     .submenu.show {
       display: block !important;
       visibility: visible !important;
       opacity: 1 !important;
-      background: rgba(30, 30, 30, 0.95) !important;
-      z-index: 9999 !important;
-      pointer-events: auto !important;
-      transform: translateX(0) translateZ(0);
     }
 
     .submenu .menu-item {

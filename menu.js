@@ -1,18 +1,19 @@
 const { ipcRenderer } = require('electron');
 
-// 解析菜单数据
 let menuData = null;
-const urlParams = new URLSearchParams(window.location.search);
-const dataParam = urlParams.get('data');
-if (dataParam) {
-  try {
-    menuData = JSON.parse(decodeURIComponent(dataParam));
-  } catch (e) {
-    console.error('[MENU] Failed to parse menu data:', e);
-  }
+let activeSubmenu = null;
+
+try {
+  const dataParam = new URLSearchParams(window.location.search).get('data');
+  if (dataParam) menuData = JSON.parse(decodeURIComponent(dataParam));
+} catch (e) {
+  console.error('[MENU] parse data:', e);
 }
 
-let activeSubmenu = null;
+ipcRenderer.on('menu-set-data', (_, data) => {
+  menuData = data;
+  renderMenu();
+});
 
 // 创建菜单项
 function createMenuItem(label, onClick) {
@@ -30,27 +31,11 @@ function createSeparator() {
   return sep;
 }
 
-// 获取屏幕边界
-let screenBounds = null;
-function getScreenBounds() {
-  if (!screenBounds) {
-      screenBounds = { 
-        width: window.screen.width, 
-        height: window.screen.height, 
-        x: 0, 
-        y: 0 
-      };
-      ipcRenderer.invoke('get-screen-bounds').then(bounds => {
-        screenBounds = bounds;
-      }).catch(() => {});
-  }
-  return screenBounds;
-}
-
-// 获取窗口在屏幕上的位置
 let windowScreenPos = { x: 0, y: 0 };
-ipcRenderer.on('menu-window-position', (event, pos) => {
-  windowScreenPos = pos;
+let screenBounds = { width: window.screen.width, height: window.screen.height, x: 0, y: 0 };
+ipcRenderer.on('menu-window-position', (_, pos) => {
+  windowScreenPos = { x: pos.x, y: pos.y };
+  if (pos.bounds) screenBounds = pos.bounds;
 });
 
 // 创建子菜单
@@ -64,10 +49,7 @@ function createSubmenu(label, items) {
 
   items.forEach(item => {
     const menuItem = createMenuItem(item.label, (e) => {
-      if (e) {
-      e.stopPropagation();
-        e.preventDefault();
-      }
+      if (e) { e.preventDefault(); e.stopPropagation(); }
       ipcRenderer.send('context-menu-action', item.action, item.payload);
       ipcRenderer.send('close-menu-window');
     });
@@ -102,46 +84,23 @@ function createSubmenu(label, items) {
     } else {
       submenuRect = submenu.getBoundingClientRect();
     }
-    const bounds = getScreenBounds();
-    const windowPos = windowScreenPos;
-    
-    // 计算容器在屏幕上的绝对位置
-    const containerScreenLeft = windowPos.x + containerRect.left;
+    const { x: wx, y: wy } = windowScreenPos;
+    const containerScreenLeft = wx + containerRect.left;
     const containerScreenRight = containerScreenLeft + containerRect.width;
-    const containerScreenTop = windowPos.y + containerRect.top;
-    
-    // 默认显示在右侧
+    const containerScreenTop = wy + containerRect.top;
+
     let left = containerWidth + 4;
-    
-    // 计算右侧显示时，子菜单在屏幕上的右边界
-    const rightSideScreenRight = containerScreenRight + 4 + submenuRect.width;
-    
-    // 判断应该显示在哪一侧
-    if (rightSideScreenRight > bounds.width) {
-      // 右侧会超出，检查左侧是否有足够空间
-      const leftSideScreenLeft = containerScreenLeft - 4 - submenuRect.width;
-      if (leftSideScreenLeft >= bounds.x) {
-        // 左侧空间足够，显示在左侧
-        left = -submenuRect.width - 4;
-      } else {
-        // 左侧也不够，调整到屏幕内
-        left = bounds.width - containerScreenLeft - submenuRect.width - 4;
-      }
+    if (containerScreenRight + 4 + submenuRect.width > screenBounds.width) {
+      const leftEdge = containerScreenLeft - 4 - submenuRect.width;
+      left = leftEdge >= screenBounds.x ? -submenuRect.width - 4 : screenBounds.width - containerScreenLeft - submenuRect.width - 4;
     }
-    
-    // 计算垂直位置
+
     let top = 0;
-    const submenuScreenBottom = containerScreenTop + submenuRect.height;
+    const submenuBottom = containerScreenTop + submenuRect.height;
+    if (submenuBottom > screenBounds.height) top = Math.max(-containerRect.top, screenBounds.height - containerScreenTop - submenuRect.height);
+    if (containerScreenTop + top < screenBounds.y) top = screenBounds.y - containerScreenTop;
     
-    if (submenuScreenBottom > bounds.height) {
-      top = Math.max(-containerRect.top, bounds.height - containerScreenTop - submenuRect.height);
-    }
-    
-    if (containerScreenTop + top < bounds.y) {
-      top = bounds.y - containerScreenTop;
-    }
-    
-    return { left, top, submenuRect, screenBounds: bounds };
+    return { left, top, submenuRect };
   };
   
   const show = () => {
@@ -160,52 +119,32 @@ function createSubmenu(label, items) {
     }
     
     activeSubmenu = submenu;
-    const { left, top, submenuRect, screenBounds: bounds } = calculatePosition();
+    const { left, top, submenuRect } = calculatePosition();
     const containerRect = container.getBoundingClientRect();
-    
-    Object.assign(submenu.style, {
-      left: `${left}px`,
-      top: `${top}px`,
-      display: 'block',
-      visibility: 'visible',
-      opacity: '1',
-      background: 'rgba(30, 30, 30, 0.95)',
-      zIndex: '9999',
-      pointerEvents: 'auto',
-      transform: 'translateX(0) translateZ(0)'
-    });
+
+    submenu.style.left = `${left}px`;
+    submenu.style.top = `${top}px`;
     submenu.classList.add('show');
-    
-      const submenuWindowLeft = containerRect.left + left;
-      const submenuWindowRight = submenuWindowLeft + submenuRect.width;
-      const submenuWindowBottom = containerRect.top + top + submenuRect.height;
-      
-      let neededWidth = window.innerWidth;
-      let neededHeight = window.innerHeight;
-    let finalLeft = left;
-      
-      if (submenuWindowLeft < 0) {
-        const overflowLeft = Math.abs(submenuWindowLeft);
-        neededWidth = window.innerWidth + overflowLeft + 10;
-      finalLeft = left + overflowLeft + 10;
-      submenu.style.left = `${finalLeft}px`;
-      }
-      
-      if (submenuWindowRight > neededWidth) {
-        neededWidth = Math.ceil(submenuWindowRight + 10);
-      }
-      if (submenuWindowBottom > window.innerHeight) {
-        neededHeight = Math.ceil(submenuWindowBottom + 10);
-      }
-      
-      if (neededWidth > window.innerWidth || neededHeight > window.innerHeight) {
-        const maxWidth = bounds.width - windowScreenPos.x;
-        const maxHeight = bounds.height - windowScreenPos.y;
-      ipcRenderer.send('resize-menu-window', 
-        Math.min(neededWidth, maxWidth), 
-        Math.min(neededHeight, maxHeight)
-      );
-      }
+
+    const submenuWindowLeft = containerRect.left + left;
+    const submenuWindowRight = submenuWindowLeft + submenuRect.width;
+    const submenuWindowBottom = containerRect.top + top + submenuRect.height;
+    let neededWidth = window.innerWidth;
+    let neededHeight = window.innerHeight;
+
+    if (submenuWindowLeft < 0) {
+      const overflowLeft = Math.abs(submenuWindowLeft);
+      neededWidth = window.innerWidth + overflowLeft + 10;
+      submenu.style.left = `${left + overflowLeft + 10}px`;
+    }
+    if (submenuWindowRight > neededWidth) neededWidth = Math.ceil(submenuWindowRight + 10);
+    if (submenuWindowBottom > window.innerHeight) neededHeight = Math.ceil(submenuWindowBottom + 10);
+
+    if (neededWidth > window.innerWidth || neededHeight > window.innerHeight) {
+      const maxW = screenBounds.width - windowScreenPos.x;
+      const maxH = screenBounds.height - windowScreenPos.y;
+      ipcRenderer.send('resize-menu-window', Math.min(neededWidth, maxW), Math.min(neededHeight, maxH));
+    }
   };
 
   const hide = () => {
@@ -321,7 +260,7 @@ function renderMenu() {
   items.forEach(item => fragment.appendChild(item));
   menu.appendChild(fragment);
 
-    const rect = menu.getBoundingClientRect();
+  const rect = menu.getBoundingClientRect();
   ipcRenderer.send('resize-menu-window', Math.ceil(rect.width), Math.ceil(rect.height));
 }
 
@@ -338,9 +277,8 @@ document.addEventListener('click', (e) => {
   }
 }, true);
 
-// 初始化
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', renderMenu);
-} else {
+  document.addEventListener('DOMContentLoaded', () => { if (menuData) renderMenu(); });
+} else if (menuData) {
   renderMenu();
 }

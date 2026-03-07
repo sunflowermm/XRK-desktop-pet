@@ -117,11 +117,7 @@ box.addEventListener('contextmenu', (e) => {
   if (isLocked) return;
   e.preventDefault();
   e.stopPropagation();
-  ipcRenderer.invoke('get-window-position').then((windowPos) => {
-    ipcRenderer.send('show-menu-window', windowPos.x + e.clientX, windowPos.y + e.clientY);
-  }).catch(() => {
-    ipcRenderer.send('show-menu-window', e.clientX, e.clientY);
-  });
+  ipcRenderer.send('show-menu-window', e.clientX, e.clientY);
 });
 
 document.addEventListener('pointerdown', (e) => {
